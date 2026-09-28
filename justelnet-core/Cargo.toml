@@ -1,0 +1,13 @@
+[package]
+name = "justelnet-core"
+version = "0.0.0"
+description = "Sans-IO Telnet protocol core: bytes in, events and outgoing bytes out."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+proptest = "1.11"
