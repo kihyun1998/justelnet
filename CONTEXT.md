@@ -20,6 +20,10 @@ _Avoid_: callback, message
 The options the client is willing to enable on each side, plus the values it answers subnegotiation requests with (terminal types, window size, environment). The Core answers the peer from it without asking the caller.
 _Avoid_: option table, telopts
 
+**Passthrough option**:
+An option the Core has no built-in handling for but negotiates because the caller put it in the Option policy; its subnegotiations reach the caller unparsed.
+_Avoid_: custom option, raw option
+
 **Terminal client**:
 The first application built on justelnet; it renders the data and supplies the Option policy's values.
 _Avoid_: host app, frontend
