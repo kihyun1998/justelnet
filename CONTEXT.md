@@ -24,6 +24,10 @@ _Avoid_: option table, telopts
 An option the Core has no built-in handling for but negotiates because the caller put it in the Option policy; its subnegotiations reach the caller unparsed.
 _Avoid_: custom option, raw option
 
+**Expect session**:
+A client wrapped for automation: it waits for patterns in the incoming data and holds whatever data no wait has consumed yet.
+_Avoid_: expecter, script, automation session
+
 **Terminal client**:
 The first application built on justelnet; it renders the data and supplies the Option policy's values.
 _Avoid_: host app, frontend
