@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Expect API Prototype</title>
+<style>
+  :root { --bg:#fafaf9; --fg:#1c1917; --muted:#78716c; --line:#e7e5e4; --card:#fff; --accent:#0f766e; --accent-bg:#f0fdfa; --warn:#b45309; --warn-bg:#fffbeb; --code:#f5f5f4; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#1c1917; --fg:#f5f5f4; --muted:#a8a29e; --line:#44403c; --card:#292524; --accent:#5eead4; --accent-bg:#134e4a; --warn:#fbbf24; --warn-bg:#451a03; --code:#1c1917; } }
+  :root[data-theme="dark"] { --bg:#1c1917; --fg:#f5f5f4; --muted:#a8a29e; --line:#44403c; --card:#292524; --accent:#5eead4; --accent-bg:#134e4a; --warn:#fbbf24; --warn-bg:#451a03; --code:#1c1917; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.55 system-ui, "Malgun Gothic", sans-serif; }
+  main { max-width:1100px; margin:0 auto; padding:24px 16px 64px; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  h2 { font-size:16px; margin:0 0 10px; }
+  p { margin:6px 0; }
+  .muted { color:var(--muted); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; margin-top:16px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width:800px) { .grid { grid-template-columns:1fr; } }
+  .proto { background:var(--warn-bg); color:var(--warn); border-radius:8px; padding:8px 12px; font-size:13px; margin-bottom:12px; }
+  dl { display:grid; grid-template-columns:130px 1fr; gap:6px 12px; margin:0; }
+  dt { color:var(--muted); }
+  dd { margin:0; min-width:0; }
+  pre, code, .mono { font-family:ui-monospace, Consolas, monospace; font-size:13px; }
+  pre { background:var(--code); border:1px solid var(--line); border-radius:6px; padding:8px 10px; margin:0; white-space:pre-wrap; word-break:break-all; }
+  .ctl { color:var(--muted); }
+  .changed { outline:2px solid var(--accent); outline-offset:2px; border-radius:4px; }
+  button { font:inherit; border:1px solid var(--line); background:var(--card); color:var(--fg); border-radius:6px; padding:6px 10px; cursor:pointer; }
+  button:hover { border-color:var(--accent); }
+  button.primary { background:var(--accent); color:var(--bg); border-color:var(--accent); }
+  button:disabled { opacity:.4; cursor:default; }
+  input { font:inherit; border:1px solid var(--line); background:var(--bg); color:var(--fg); border-radius:6px; padding:6px 8px; width:100%; }
+  .row { display:flex; gap:8px; align-items:center; margin:6px 0; flex-wrap:wrap; }
+  .row > input { flex:1; min-width:160px; }
+  .chips { display:flex; gap:6px; flex-wrap:wrap; }
+  .tabs { display:flex; gap:4px; flex-wrap:wrap; border-bottom:1px solid var(--line); margin-bottom:12px; }
+  .tabs button { border:none; border-bottom:2px solid transparent; border-radius:0; background:none; padding:8px 10px; }
+  .tabs button.on { border-bottom-color:var(--accent); color:var(--accent); font-weight:600; }
+  ol.steps { padding-left:20px; margin:8px 0 0; }
+  ol.steps li { margin:10px 0; }
+  ol.steps li.done { opacity:.5; }
+  .result-match { background:var(--accent-bg); border-radius:6px; padding:8px 10px; }
+  .result-timeout { background:var(--warn-bg); color:var(--warn); border-radius:6px; padding:8px 10px; }
+  ul.qs { margin:6px 0 0; padding-left:20px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="proto">PROTOTYPE: 버리는 코드입니다. 기다렸다 보내는(expect) API의 모양을 정하려고 만들었습니다.</div>
+  <h1>justelnet-expect: 장비 로그인을 손으로 돌려 보기</h1>
+  <p>가상의 Cisco 라우터(R1)와 접속을 흉내 냅니다. <b>장비가 보내는 글자</b>, <b>우리가 기다리는 것</b>(expect), <b>우리가 보내는 것</b>을 버튼으로 하나씩 진행하면서 상태가 어떻게 바뀌는지 볼 수 있습니다. 시나리오마다 Rust로 쓰면 어떤 코드가 되는지도 함께 보여 줍니다.</p>
+  <p class="muted">telnet 제어 바이트는 Core가 이미 걸러 냈다고 가정합니다. 여기 들어오는 것은 Data Event의 글자뿐입니다.</p>
+
+  <div class="card">
+    <h2>눌러 보면서 판단할 질문</h2>
+    <ul class="qs">
+      <li><b>A.</b> 매칭 결과로 "몇 번째 패턴이 맞았는지"와 "그 앞에 온 글자(before)"를 돌려주는 방식이 쓰기 편한가요?</li>
+      <li><b>B.</b> 매칭 뒤에 남은 글자는 버퍼에 남겨서 다음 expect가 쓰게 합니다. 이게 자연스러운가요? (시나리오 3)</li>
+      <li><b>C.</b> 타임아웃을 오류(Err)로 줄지, 결과의 한 종류(Timeout)로 줄지. 타임아웃 때 그때까지 받은 글자를 보여 줘야 하나요? (시나리오 5)</li>
+      <li><b>D.</b> 패턴은 문자열만으로 충분한가요, 정규식도 필요한가요? (시나리오 6)</li>
+      <li><b>E.</b> <code>--More--</code> 페이지 넘김을 라이브러리가 알아서 처리할까요, 사용자가 반복문으로 처리할까요? (시나리오 4)</li>
+    </ul>
+  </div>
+
+  <div class="grid">
+    <div class="card" id="state-card">
+      <h2>현재 상태</h2>
+      <dl id="state"></dl>
+    </div>
+    <div class="card">
+      <h2>시나리오</h2>
+      <div class="tabs" id="tabs"></div>
+      <div id="scenario"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>자유롭게 눌러 보기</h2>
+    <div class="row"><span style="width:110px">장비가 보냄</span><input id="in-data" placeholder="예: Password: (\n은 줄바꿈)"><button id="b-data">보내기</button></div>
+    <div class="chips" style="margin:0 0 8px 118px">
+      <button data-chip="Username: ">Username: </button>
+      <button data-chip="Password: ">Password: </button>
+      <button data-chip="\r\nR1>">R1&gt;</button>
+      <button data-chip="\r\nR1#">R1#</button>
+      <button data-chip="% Login invalid\r\n\r\nUsername: ">% Login invalid</button>
+      <button data-chip=" --More-- "> --More-- </button>
+    </div>
+    <div class="row"><span style="width:110px">기다림(expect)</span><input id="in-exp" placeholder="쉼표로 구분, /정규식/ 가능. 예: #, >, /\n\S+[#>] ?$/"><input id="in-to" value="5" style="flex:0 0 70px" title="타임아웃(초)"><span class="muted">초</span><button id="b-exp">기다리기</button></div>
+    <div class="row"><span style="width:110px">우리가 보냄</span><input id="in-send" placeholder="예: admin"><button id="b-send">send_line</button></div>
+    <div class="row"><span style="width:110px">시간</span><button id="b-tick1">+1초</button><button id="b-tick5">+5초</button><button id="b-reset">처음부터</button></div>
+  </div>
+</main>
+
+<script>
+/* ---- Portable logic module: no DOM. Lifts into justelnet-expect as the matching/buffer semantics. ---- */
+const Expect = (() => {
+  function init() {
+    return { now: 0, buffer: "", sent: [], waiting: null, last: null };
+  }
+  function compile(p) {
+    if (p.length > 2 && p.startsWith("/") && p.endsWith("/")) return { label: p, re: new RegExp(p.slice(1, -1)) };
+    return { label: JSON.stringify(p), re: new RegExp(p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")) };
+  }
+  // Earliest match in the buffer wins; ties go to the pattern listed first.
+  function tryMatch(s) {
+    if (!s.waiting) return s;
+    let best = null;
+    s.waiting.patterns.forEach((p, i) => {
+      const m = p.re.exec(s.buffer);
+      if (m && (best === null || m.index < best.start)) best = { i, start: m.index, end: m.index + m[0].length, text: m[0] };
+    });
+    if (!best) return s;
+    return { ...s,
+      last: { kind: "match", index: best.i, label: s.waiting.patterns[best.i].label,
+              before: s.buffer.slice(0, best.start), matched: best.text },
+      buffer: s.buffer.slice(best.end),
+      waiting: null };
+  }
+  function dispatch(s, a) {
+    switch (a.type) {
+      case "serverData": return tryMatch({ ...s, buffer: s.buffer + a.text });
+      case "expect": return tryMatch({ ...s, last: null,
+        waiting: { patterns: a.patterns.map(compile), deadline: s.now + a.timeoutMs } });
+      case "sendLine": return { ...s, sent: [...s.sent, a.text + " ⏎"] };
+      case "sendRaw": return { ...s, sent: [...s.sent, JSON.stringify(a.text) + " (raw)"] };
+      case "tick": {
+        const now = s.now + a.ms;
+        if (s.waiting && now >= s.waiting.deadline)
+          return { ...s, now, waiting: null, last: { kind: "timeout", buffer: s.buffer } };
+        return { ...s, now };
+      }
+    }
+    return s;
+  }
+  return { init, dispatch };
+})();
+
+/* ---- Throwaway page ---- */
+let state = Expect.init();
+let prev = state;
+const $ = (id) => document.getElementById(id);
+const unesc = (t) => t.replace(/\\r/g, "\r").replace(/\\n/g, "\n");
+function show(t) {
+  const e = document.createElement("span");
+  e.textContent = t;
+  return e.innerHTML.replace(/\r/g, '<span class="ctl">␍</span>').replace(/\n/g, '<span class="ctl">␊</span>\n');
+}
+function act(a) { prev = state; state = Expect.dispatch(state, a); render(); }
+
+function render() {
+  const s = state, rows = [];
+  const ch = (k) => (JSON.stringify(s[k]) !== JSON.stringify(prev[k]) ? ' class="changed"' : "");
+  rows.push(["경과 시간", `<span${ch("now")}>${s.now / 1000}초</span>`]);
+  rows.push(["기다리는 중", s.waiting
+    ? `<span${ch("waiting")}>${s.waiting.patterns.map((p, i) => `${i}: <code>${show(p.label)}</code>`).join(", ")}<br><span class="muted">남은 시간 ${(s.waiting.deadline - s.now) / 1000}초</span></span>`
+    : `<span class="muted"${ch("waiting")}>없음</span>`]);
+  rows.push(["버퍼", `<pre${ch("buffer")}>${s.buffer ? show(s.buffer) : '<span class="muted">(비어 있음)</span>'}</pre><span class="muted">${s.buffer.length}글자: 아직 어떤 expect도 가져가지 않은 글자</span>`]);
+  let last = '<span class="muted">없음</span>';
+  if (s.last && s.last.kind === "match")
+    last = `<div class="result-match"><b>맞음</b>: ${s.last.index}번 패턴 <code>${show(s.last.label)}</code><br>before:<pre>${show(s.last.before) || " "}</pre>matched: <code>${show(s.last.matched)}</code></div>`;
+  if (s.last && s.last.kind === "timeout")
+    last = `<div class="result-timeout"><b>타임아웃</b>: 그때까지 버퍼에 있던 글자<pre>${show(s.last.buffer) || " "}</pre></div>`;
+  rows.push(["마지막 결과", `<div${ch("last")}>${last}</div>`]);
+  rows.push(["보낸 입력", `<span${ch("sent")}>${s.sent.length ? s.sent.map(show).join("<br>") : '<span class="muted">없음</span>'}</span>`]);
+  $("state").innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
+}
+
+/* Scenarios: each step = a label, the action, and the Rust it stands for. */
+const D = (text) => ({ type: "serverData", text });
+const E = (patterns, sec = 5) => ({ type: "expect", patterns, timeoutMs: sec * 1000 });
+const S = (text) => ({ type: "sendLine", text });
+const T = (sec) => ({ type: "tick", ms: sec * 1000 });
+const scenarios = [
+  { name: "1. 정상 로그인", desc: "가장 흔한 흐름입니다. 장비가 Username과 Password를 묻고, 로그인하면 R1> 프롬프트가 뜹니다.",
+    steps: [
+      ["장비: 배너와 Username 프롬프트", D("\r\nUser Access Verification\r\n\r\nUsername: "), null],
+      ["Username: 을 기다림", E(["Username: "]), 'let mut s = Expect::new(client);\ns.expect("Username: ", secs(5)).await?;'],
+      ["admin 보냄", S("admin"), 's.send_line("admin").await?;'],
+      ["장비: Password 프롬프트", D("admin\r\nPassword: "), null],
+      ["Password: 를 기다림", E(["Password: "]), 's.expect("Password: ", secs(5)).await?;'],
+      ["비밀번호 보냄", S("********"), 's.send_line(password).await?;'],
+      ["장비: 프롬프트", D("\r\nR1>"), null],
+      ["> 또는 # 를 기다림", E([">", "#"]), 'let m = s.expect_any(&[">", "#"], secs(5)).await?;\nif m.index == 0 { /* enable 필요 */ }'],
+    ] },
+  { name: "2. 프롬프트가 쪼개져 도착", desc: "TCP는 글자를 원하는 단위로 나눠 주지 않습니다. 'Password: '가 두 번에 걸쳐 도착해도 맞아야 합니다. 첫 조각 뒤에는 아직 맞지 않고 기다리는 상태가 유지되는지 보세요.",
+    steps: [
+      ["Password: 를 먼저 기다림", E(["Password: "]), 's.expect("Password: ", secs(5)).await?;'],
+      ["장비: 'Pass' 까지만 도착", D("Pass"), null],
+      ["장비: 나머지 'word: ' 도착", D("word: "), null],
+    ] },
+  { name: "3. 비밀번호 틀림", desc: "여러 패턴 중 먼저 나온 것이 맞습니다. 맞은 뒤 남은 글자(다음 'Username: ')는 버퍼에 남아 있다가, 바로 다음 expect가 기다리지 않고 즉시 가져갑니다. 이게 자연스러운지 보세요 (질문 B).",
+    steps: [
+      ["성공/실패 패턴을 함께 기다림", E(["#", ">", "% Login invalid"]), 'let m = s.expect_any(&["#", ">", "% Login invalid"], secs(5)).await?;'],
+      ["장비: 로그인 실패 메시지와 다시 Username", D("\r\n% Login invalid\r\n\r\nUsername: "), null],
+      ["Username: 을 기다림 (이미 버퍼에 있음)", E(["Username: "]), 's.expect("Username: ", secs(5)).await?; // 즉시 반환'],
+    ] },
+  { name: "4. --More-- 페이지 넘김", desc: "show 명령 출력이 길면 Cisco가 --More-- 에서 멈추고 스페이스를 기다립니다. 지금은 사용자가 반복문으로 처리합니다. 라이브러리가 알아서 해 줘야 할까요 (질문 E)? 실무에서는 먼저 'terminal length 0'을 보내 페이지 넘김을 끄기도 합니다.",
+    steps: [
+      ["show run 보냄", S("show run"), 's.send_line("show run").await?;\nlet mut out = String::new();\nloop {'],
+      ["장비: 첫 페이지", D("show run\r\nhostname R1\r\ninterface Gi0/0\r\n ip address 10.0.0.1 255.255.255.0\r\n --More-- "), null],
+      ["--More-- 또는 프롬프트를 기다림", E(["--More--", "R1#"]), '    let m = s.expect_any(&["--More--", "R1#"], secs(5)).await?;\n    out += &m.before;'],
+      ["스페이스 보냄", { type: "sendRaw", text: " " }, '    if m.index == 0 { s.send_raw(b" ").await?; continue; }\n    break;\n}'],
+      ["장비: 마지막 페이지와 프롬프트", D("\r\ninterface Gi0/1\r\n shutdown\r\nend\r\n\r\nR1#"), null],
+      ["다시 기다림", E(["--More--", "R1#"]), '    // 두 번째 반복: R1# 이 맞아서 break'],
+    ] },
+  { name: "5. 장비가 응답 없음", desc: "명령을 보냈는데 프롬프트가 돌아오지 않습니다. 타임아웃 때 그때까지 받은 글자를 함께 알려 줘야 원인을 알 수 있습니다. 오류(Err)로 줄지 결과(Timeout)로 줄지 판단해 보세요 (질문 C).",
+    steps: [
+      ["reload 보냄", S("reload"), 's.send_line("reload").await?;'],
+      ["장비: 확인 질문만 옴", D("reload\r\nProceed with reload? [confirm]"), null],
+      ["# 를 5초 기다림", E(["#"], 5), 'match s.expect("#", secs(5)).await {\n    Err(ExpectError::Timeout { buffer }) => { /* buffer에 [confirm] */ }\n    ...\n}'],
+      ["3초 지남", T(3), null],
+      ["3초 더 지남", T(3), null],
+    ] },
+  { name: "6. 프롬프트 잘못 맞춤", desc: "문자열 '#'만 기다리면 배너 안의 '#'에 먼저 맞아 버립니다. 버퍼 끝의 'R1#'처럼 줄 시작에서 끝나는 프롬프트만 맞추려면 정규식이 필요합니다 (질문 D).",
+    steps: [
+      ["문자열 '#' 을 기다림", E(["#"]), 's.expect("#", secs(5)).await?;'],
+      ["장비: 배너에 '#' 포함", D("\r\n*** Authorized access only. Ticket #4521 ***\r\nR1#"), null],
+      ["처음부터 다시: 정규식으로 기다림", E(["/\\n\\S+[#>] ?$/"]), 's.expect(Regex::new(r"\\n\\S+[#>] ?$")?, secs(5)).await?;'],
+      ["장비: 같은 배너", D("\r\n*** Authorized access only. Ticket #4521 ***\r\nR1#"), null],
+    ], resetAt: 2 },
+];
+
+let tab = 0, stepIdx = 0;
+function renderScenario() {
+  $("tabs").innerHTML = scenarios.map((sc, i) => `<button class="${i === tab ? "on" : ""}" data-tab="${i}">${sc.name}</button>`).join("");
+  const sc = scenarios[tab];
+  $("scenario").innerHTML = `<p>${sc.desc}</p><ol class="steps">${sc.steps.map(([label, , rust], i) =>
+    `<li class="${i < stepIdx ? "done" : ""}"><button ${i === stepIdx ? 'class="primary"' : "disabled"} data-step="${i}">${label}</button>${rust ? `<pre style="margin-top:6px">${show(rust)}</pre>` : ""}</li>`).join("")}</ol>`;
+}
+function startScenario(i) { tab = i; stepIdx = 0; prev = state = Expect.init(); render(); renderScenario(); }
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("button"); if (!t) return;
+  if (t.dataset.tab) return startScenario(+t.dataset.tab);
+  if (t.dataset.step) {
+    const sc = scenarios[tab];
+    if (sc.resetAt === stepIdx) { state = Expect.init(); }
+    act(sc.steps[stepIdx][1]); stepIdx++; renderScenario(); return;
+  }
+  if (t.dataset.chip) { act({ type: "serverData", text: unesc(t.dataset.chip) }); return; }
+});
+$("b-data").onclick = () => { act({ type: "serverData", text: unesc($("in-data").value) }); $("in-data").value = ""; };
+$("b-exp").onclick = () => {
+  const ps = $("in-exp").value.split(",").map((x) => unesc(x.trim())).filter(Boolean);
+  if (ps.length) act({ type: "expect", patterns: ps, timeoutMs: (+$("in-to").value || 5) * 1000 });
+};
+$("b-send").onclick = () => { act({ type: "sendLine", text: $("in-send").value }); $("in-send").value = ""; };
+$("b-tick1").onclick = () => act({ type: "tick", ms: 1000 });
+$("b-tick5").onclick = () => act({ type: "tick", ms: 5000 });
+$("b-reset").onclick = () => { prev = state = Expect.init(); render(); };
+startScenario(0);
+</script>
+</body>
+</html>
