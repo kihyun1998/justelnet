@@ -28,6 +28,10 @@ _Avoid_: custom option, raw option
 A client wrapped for automation: it waits for patterns in the incoming data and holds whatever data no wait has consumed yet.
 _Avoid_: expecter, script, automation session
 
+**Transcript**:
+A recorded Telnet conversation kept as data: what the server sent, what the Core must answer, and which Events it must emit. Device captures become Transcripts.
+_Avoid_: fixture, trace, capture file
+
 **Terminal client**:
 The first application built on justelnet; it renders the data and supplies the Option policy's values.
 _Avoid_: host app, frontend
