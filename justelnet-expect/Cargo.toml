@@ -1,0 +1,10 @@
+[package]
+name = "justelnet-expect"
+version = "0.0.0"
+description = "Expect-style automation over a justelnet client."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
