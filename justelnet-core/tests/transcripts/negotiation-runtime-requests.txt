@@ -1,0 +1,33 @@
+# The caller asks for BINARY on the peer's side, which the policy does not
+# support: the request is sent anyway, once.
+call: enable remote BINARY
+client: ff fd 00
+
+call: enable remote BINARY
+
+# The peer agrees: no answer (it answers us), the option turns on.
+server: ff fb 00
+event: option remote BINARY on
+
+call: enable remote BINARY
+
+# Asking it off turns it off at once and sends DONT once.
+call: disable remote BINARY
+client: ff fe 00
+event: option remote BINARY off
+
+call: disable remote BINARY
+
+# The peer confirms: nothing more.
+server: ff fc 00
+
+# The same on our side.
+call: enable local NAWS
+client: ff fb 1f
+
+server: ff fd 1f
+event: option local NAWS on
+
+server: ff fe 1f
+client: ff fc 1f
+event: option local NAWS off

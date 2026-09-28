@@ -3,7 +3,6 @@
 
 mod common;
 
-use justelnet_core::Core;
 use proptest::prelude::*;
 
 proptest! {
@@ -12,10 +11,10 @@ proptest! {
         cuts in proptest::collection::vec(proptest::collection::vec(any::<usize>(), 0..12), 64)
     ) {
         for t in common::load_all() {
-            let mut core = Core::new();
+            let mut core = t.core();
             for (i, step) in t.steps.iter().enumerate() {
                 let chunks = common::split(&step.server, &cuts[i % cuts.len()]);
-                let got = common::run_step(&mut core, chunks);
+                let got = common::run_step(&mut core, step, chunks);
                 prop_assert_eq!(got, common::expected(step), "{} step {}", t.name, i + 1);
             }
         }

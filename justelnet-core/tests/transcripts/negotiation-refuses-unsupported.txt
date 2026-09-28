@@ -1,0 +1,9 @@
+# The default policy supports nothing: every DO is refused with WONT and every
+# WILL with DONT (RFC 1123 3.2.1), and the negotiation bytes never reach Data.
+server: 61 ff fd 18 62 ff fb 01 63
+client: ff fc 18 ff fe 01
+event: data "abc"
+
+# Refusing changes nothing, so a repeated request is refused again.
+server: ff fd 18
+client: ff fc 18
