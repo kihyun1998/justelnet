@@ -11,9 +11,12 @@
 )]
 
 use std::io;
+use std::time::Duration;
 
 use justelnet_core::{Command, Core, OptionPolicy, Side, TelnetOption};
+use socket2::SockRef;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::net::{TcpStream, ToSocketAddrs};
 
 /// The sans-IO protocol Core, re-exported.
 pub use justelnet_core as core;
@@ -38,6 +41,8 @@ pub enum Error {
     Core(core::Error),
     /// The connection has ended, by a clean close or an earlier I/O error.
     Closed,
+    /// [`Client::connect`] did not connect within its timeout.
+    ConnectTimeout,
 }
 
 impl std::fmt::Display for Error {
@@ -46,6 +51,7 @@ impl std::fmt::Display for Error {
             Error::Io(e) => e.fmt(f),
             Error::Core(e) => e.fmt(f),
             Error::Closed => f.write_str("the connection is closed"),
+            Error::ConnectTimeout => f.write_str("connecting timed out"),
         }
     }
 }
@@ -55,7 +61,7 @@ impl std::error::Error for Error {
         match self {
             Error::Io(e) => e.source(),
             Error::Core(e) => e.source(),
-            Error::Closed => None,
+            Error::Closed | Error::ConnectTimeout => None,
         }
     }
 }
@@ -91,6 +97,27 @@ pub struct Client<S> {
     unflushed: bool,
     /// Whether the connection has ended, by a clean close or an I/O error.
     closed: bool,
+}
+
+impl Client<TcpStream> {
+    /// Connects to `addr` and returns a client answering the peer from
+    /// `policy`. Resolving the address and connecting must finish within
+    /// `timeout`, or this fails with [`Error::ConnectTimeout`]; any other
+    /// failure is [`Error::Io`]. The socket keeps urgent data inline
+    /// (`SO_OOBINLINE`), so a peer's Synch reaches the Core whole, and sends
+    /// without delay (`TCP_NODELAY`), so each keystroke goes out at once.
+    pub async fn connect(
+        addr: impl ToSocketAddrs,
+        policy: OptionPolicy,
+        timeout: Duration,
+    ) -> Result<Self, Error> {
+        let stream = tokio::time::timeout(timeout, TcpStream::connect(addr))
+            .await
+            .map_err(|_| Error::ConnectTimeout)??;
+        SockRef::from(&stream).set_out_of_band_inline(true)?;
+        stream.set_nodelay(true)?;
+        Ok(Self::new(stream, policy))
+    }
 }
 
 impl<S> Client<S>

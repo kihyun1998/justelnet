@@ -16,7 +16,7 @@ The order has a cost PuTTY does not pay. PuTTY's `sk_write` appends to the socke
 - Whether written bytes are still unflushed is kept apart from the buffer, so a stream with its own buffer (a `BufWriter`, TLS) is still flushed on the next call when the last one stopped between the write and the flush.
 - The read buffer is a 4 KiB field, not a local: as a local it made the `next_event` future 4168 bytes, zeroed on every call, and `select!` loops build a new one each time round; as a field the future is 72 bytes (measured 2026-09-29).
 
-A caller's own TCP stream gets no socket options from the client, so `Client::new` asks for urgent data to be kept inline: without it the Synch a netkit telnetd sends around its banner can lose its IAC (see [receive parsing](receive-parsing.md) and #28's comment, where the connect path sets it).
+A caller's own TCP stream gets no socket options from the client, so `Client::new` asks for urgent data to be kept inline: without it the Synch a netkit telnetd sends around its banner can lose its IAC (see [receive parsing](receive-parsing.md)). `Client::connect` sets it itself; see below.
 
 The stream must be `Unpin`, as tokio's `AsyncReadExt::read` requires; a stream that is not can be passed as `Pin<Box<S>>`.
 
@@ -41,6 +41,18 @@ Every send method (`send_data`, `send_raw`, `send_command`, `set_window_size`, `
 Every method takes `&mut self`, so a caller whose `next_event` future is pending in a `select!` has to drop it to send; that is why #26's cancel safety is what makes a terminal loop possible.
 
 Against the netkit telnetd on RHEL 9 (probed 2026-09-29): login through `send_data`, then `set_window_size(100, 40)` made `stty size` answer `40 100`, and `exit` gave `Closed`, then `Err(Closed)` from the next send.
+
+## Connecting by address
+
+`Client::connect(addr, policy, timeout)` bounds resolving and connecting together by `timeout`; running out is `Error::ConnectTimeout`, and any other failure (refused, unreachable) is `Error::Io`. The timeout is an argument with no default, so the library holds no opinion on how long a device may take. The variant's name and the explicit argument are the maintainer's call, made on 2026-09-29 over `Error::Timeout` (the Expect session's pattern timeout already has that name, #10) and a fixed default beside a `connect_timeout` variant; it is theirs to reverse.
+
+The socket keeps urgent data inline (`SO_OOBINLINE`), set through socket2 because tokio exposes no setter. socket2 is already in the tree through tokio's `net` feature (0.6, `features = ["all"]`), so depending on it directly adds no crate; the dependency is the maintainer's call, made on 2026-09-29 over per-platform `setsockopt` code and leaving it unset, and theirs to reverse. A local test sends a byte with `send_out_of_band` and requires it among the Data; without the setting it is lost.
+
+Against the netkit telnetd on RHEL 9 from Windows (probed 2026-09-29, 30 connections each): through `connect`, the Synch arrived whole as a DataMark Command in 5 and never as a stray byte; through a plain `TcpStream`, it never arrived whole and put a lone `f2` into the Data in 2. The server sends the Synch only on some connections, so the counts are small; the local test is the deterministic proof.
+
+The socket also sends without delay (`TCP_NODELAY`), as PuTTY does by default (`tcp_nodelay`, `conf.h`). The maintainer chose it on 2026-09-29 on PuTTY's default alone, with nothing measured; it is theirs to reverse. Measured afterwards against the lab telnetd over a LAN, two keystrokes back to back echoed in a median 0.90 ms with it and 1.23 ms without (maximum 40 ms and 43 ms, 10 each), and on loopback the two were the same: no gain shown on a short path, where the delayed ACK that Nagle waits for comes back at once. No test covers the setting, since the client does not expose its socket and a timing threshold would not hold on CI.
+
+The timeout test connects to TEST-NET-1 (`192.0.2.1`, RFC 5737) under paused time: the clock jumps to the timer once the runtime is idle, so it asserts the time waited, not only the variant, or a timeout ignoring its argument would pass.
 
 ## How a connection ends
 

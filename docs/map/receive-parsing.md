@@ -12,7 +12,7 @@ Warning on those bytes is the maintainer's call, made on 2026-09-29 over droppin
 
 RFC 854's Synch has the receiver discard data up to the DM once TCP urgent data signals it, and RFC 1123 §3.2.4 makes that a MUST. The Core cannot know where discarding should start: it sees a byte stream, and a generic stream carries no urgent signal. So `IAC DM` is a Command Event like the others and the data around it is kept (#6). PuTTY discards while `in_synch` is set and stops at the next 0xF2 byte, a heuristic its own comment calls hoping for the best.
 
-The urgent mark also damages the bytes before they reach the Core. A netkit telnetd on RHEL 9 sends its Synch as TCP urgent data around the login banner; read on Windows through a socket without `SO_OOBINLINE` (probed 2026-09-29), the IAC was taken out of the stream and a lone `f2` arrived as data, in one of two runs. On BSD-semantics stacks the DM byte is the one taken, leaving a bare IAC to swallow the next byte (not observed). The Core cannot repair this from the bytes it is given; the socket has to keep urgent data inline, which is the Driver's to set where it opens the stream.
+The urgent mark also damages the bytes before they reach the Core. A netkit telnetd on RHEL 9 sends its Synch as TCP urgent data around the login banner; read on Windows through a socket without `SO_OOBINLINE` (probed 2026-09-29), the IAC was taken out of the stream and a lone `f2` arrived as data, in one of two runs. On BSD-semantics stacks the DM byte is the one taken, leaving a bare IAC to swallow the next byte (not observed). The Core cannot repair this from the bytes it is given; the socket has to keep urgent data inline, which `Client::connect` sets (see [driving a stream](driving-a-stream.md)).
 
 ## CR NUL
 
