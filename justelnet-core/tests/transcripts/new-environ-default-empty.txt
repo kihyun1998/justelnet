@@ -1,0 +1,9 @@
+# The default policy has no variables: SEND gets an empty IS, which RFC 1572
+# allows. A SEND while NEW-ENVIRON is off gets nothing.
+client: ff fb 1f ff fb 18 ff fb 27 ff fd 01 ff fb 03 ff fd 03
+
+server: ff fa 27 01 ff f0
+
+server: ff fd 27 ff fa 27 01 ff f0
+client: ff fa 27 00 ff f0
+event: option local NEW-ENVIRON on

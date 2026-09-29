@@ -1,0 +1,31 @@
+# NEW-ENVIRON SEND is answered with IS from the policy's variables (RFC 1572).
+variable: "USER" "joe"
+user-variable: "TZ" "KST"
+user-variable: "ESC" "a\x02b\x01"
+client: ff fb 1f ff fb 18 ff fb 27 ff fd 01 ff fb 03 ff fd 03
+
+server: ff fd 27
+event: option local NEW-ENVIRON on
+
+# A bare SEND: every VAR, then every USERVAR. VAR, VALUE, ESC and USERVAR
+# bytes inside a name or value are escaped with ESC.
+server: ff fa 27 01 ff f0
+client: ff fa 27 00 00 55 53 45 52 01 6a 6f 65 03 54 5a 01 4b 53 54 03 45 53 43 01 61 02 02 62 02 01 ff f0
+
+# An explicit list is answered entry by entry, in its order: USER, then ACCT
+# (not defined, so no VALUE), then every USERVAR (a type with no name).
+server: ff fa 27 01 00 55 53 45 52 00 41 43 43 54 03 ff f0
+client: ff fa 27 00 00 55 53 45 52 01 6a 6f 65 00 41 43 43 54 03 54 5a 01 4b 53 54 03 45 53 43 01 61 02 02 62 02 01 ff f0
+
+# Every VAR only.
+server: ff fa 27 01 00 ff f0
+client: ff fa 27 00 00 55 53 45 52 01 6a 6f 65 ff f0
+
+# A requested name with an escaped byte is read unescaped and sent back escaped.
+server: ff fa 27 01 03 41 02 01 42 ff f0
+client: ff fa 27 00 03 41 02 01 42 ff f0
+
+# A list with no VAR or USERVAR in it asks for nothing: an empty IS, not
+# every variable.
+server: ff fa 27 01 41 42 ff f0
+client: ff fa 27 00 ff f0

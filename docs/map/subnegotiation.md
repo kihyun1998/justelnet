@@ -2,9 +2,9 @@
 
 How the Core takes `IAC SB <option> … IAC SE` out of the stream, what it keeps of the body, and which subnegotiations it answers.
 
-## Only TTYPE SEND is answered today
+## Which subnegotiations are answered
 
-A complete subnegotiation is discarded unless it is TTYPE SEND (the body exactly `01`) while TTYPE is on on our side. NEW-ENVIRON SEND is answered from #18, and subnegotiations of Passthrough options reach the caller from #20. A SEND while TTYPE is off gets no answer: RFC 855 has subnegotiation follow agreement, and every telnetd read (target research #2) sends SEND only after the client's WILL.
+TTYPE SEND (the body exactly `01`) and NEW-ENVIRON SEND (`01` and a request list) are answered while the option is on on our side; NAWS is sent, never asked for. Every other subnegotiation is discarded; those of Passthrough options reach the caller from #20. A SEND while its option is off gets no answer: RFC 855 has subnegotiation follow agreement, and every telnetd read (target research #2) sends SEND only after the client's WILL.
 
 ## Recovering from `IAC x` inside a subnegotiation
 
@@ -36,3 +36,21 @@ The cycle has not been seen on a real server. A netkit telnetd on RHEL 9 (probed
 The default list is `["UNKNOWN"]`, RFC 1091's name for a type the sender does not know, since the Core does not know the caller's emulator. A terminal client sets its own list. The maintainer chose this on 2026-09-29 over `["XTERM"]` (PuTTY's family, working full-screen programs without configuration but wrong for an emulator that is not an xterm); it is theirs to reverse.
 
 RFC 1091 has the client's emulation follow the type it sent last, while the TTYPE subnegotiation is kept out of the Event stream. `Core::terminal_type_sent` reports it on demand instead, like `is_enabled`. The maintainer chose a query on 2026-09-29 over leaving it out until a terminal client asked.
+
+## NAWS
+
+The window size (RFC 1073: width, then height, 16 bits each, big-endian) is sent right after NAWS turns on on our side, after the WILL when the Core answers the peer's DO, and again whenever `set_window_size` changes it while NAWS is on. A size set while NAWS is off is kept and sent when it turns on; setting the size already held sends nothing. A 255 in the size is sent as IAC IAC. The policy's size is the starting one, 80x24 by default (RFC 1073's example, PuTTY's default).
+
+## NEW-ENVIRON
+
+SEND is answered with IS as RFC 1572 lays it out, not as PuTTY does (PuTTY ignores the request list and sends every variable as VAR):
+
+- A bare SEND (no list at all) gets every well-known variable (VAR), then every user variable (USERVAR), in the policy's order. Unix telnetd (netkit, inetutils, NetBSD) sends only bare SENDs. A list holding no VAR or USERVAR asks for nothing and gets an empty IS.
+- A request list is answered entry by entry, in its order: a type with a name gets that variable, or the name alone when the policy lacks it (RFC 1572's "undefined"); a type with no name gets every variable of that type. An entry is answered as often as it is asked for, as in RFC 1572's own example.
+- VAR, VALUE, ESC and USERVAR bytes inside a name or value are escaped with ESC, both ways; 255 is doubled at the subnegotiation layer.
+
+The policy's variables are set with `variable` (VAR) and `user_variable` (USERVAR) rather than sorted by RFC 1572's list of well-known names, so a caller decides the type. The maintainer chose the two methods on 2026-09-29 over sorting by name; it is theirs to reverse. There are no variables by default: the Core has no view of the process environment, and USER in particular is what some servers use to pick the account to log in.
+
+INFO (unsolicited changes after the first IS) is not sent.
+
+What the server does with the variables is its own: netkit telnetd (`state.c`, the NEW-ENVIRON IS parser) skips bytes before the first type, unsets a variable sent without VALUE, honours USERVAR only when built with `ACCEPT_USERVAR`, and passes VAR names through `envvarok`, so a caller's variable can be dropped there without any sign on the wire.

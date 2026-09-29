@@ -1,0 +1,10 @@
+# A server offering both ENVIRONs ends with only NEW-ENVIRON on: OLD-ENVIRON is
+# refused, so inetutils and BSD telnetd never wait for an OLD-ENVIRON IS.
+client: ff fb 1f ff fb 18 ff fb 27 ff fd 01 ff fb 03 ff fd 03
+
+server: ff fd 27 ff fd 24
+client: ff fc 24
+event: option local NEW-ENVIRON on
+
+# An OLD-ENVIRON SEND is not answered.
+server: ff fa 24 01 ff f0

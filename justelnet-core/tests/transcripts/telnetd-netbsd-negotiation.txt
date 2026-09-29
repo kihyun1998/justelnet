@@ -1,0 +1,34 @@
+# NetBSD telnetd (libexec/telnetd/telnetd.c), built with authentication and
+# encryption, against the default policy; read from source, not captured.
+# While it waits for the answer to DO AUTHENTICATION it reads the Core's whole
+# active start and answers it, so its phase 1 and phase 2 then skip every
+# option already on (send_do/send_will return early for those).
+client: ff fb 1f ff fb 18 ff fb 27 ff fd 01 ff fb 03 ff fd 03
+
+server: ff fd 25
+client: ff fc 25
+
+# Answers to the active start: DO NAWS, DO TTYPE, DO NEW-ENVIRON, WILL ECHO,
+# DO SGA, WILL SGA.
+server: ff fd 1f ff fd 18 ff fd 27 ff fb 01 ff fd 03 ff fb 03
+client: ff fa 1f 00 50 00 18 ff f0
+event: option local NAWS on
+event: option local TTYPE on
+event: option local NEW-ENVIRON on
+event: option remote ECHO on
+event: option local SGA on
+event: option remote SGA on
+
+# Phase 1, less what is already on: WILL ENCRYPT, DO TSPEED, XDISPLOC,
+# OLD-ENVIRON, all refused.
+server: ff fb 26 ff fd 20 ff fd 23 ff fd 24
+client: ff fe 26 ff fc 20 ff fc 23 ff fc 24
+
+# One ENVIRON SEND (NEW, the one accepted), then TTYPE SEND.
+server: ff fa 27 01 ff f0 ff fa 18 01 ff f0
+client: ff fa 27 00 ff f0 ff fa 18 00 55 4e 4b 4e 4f 57 4e ff f0
+
+# Phase 2, less what is already on: DO ECHO, DO LINEMODE, WILL STATUS,
+# DO LFLOW, DO TM.
+server: ff fd 01 ff fd 22 ff fb 05 ff fd 21 ff fd 06
+client: ff fc 01 ff fc 22 ff fe 05 ff fc 21 ff fc 06

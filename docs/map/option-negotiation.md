@@ -27,13 +27,11 @@ A character-mode terminal client: ECHO refused on our side and requested from th
 
 - telnetd's 4.2BSD `DO ECHO` probe gets `WONT ECHO`, and the `DONT ECHO` telnetd sends afterwards asks for a state already in effect, so it gets no answer.
 - Every `DO TM` gets `WONT TM`, since TM stays in `NO`; this keeps BSD and inetutils telnetd out of kludge linemode. A runtime request that turns TM on on our side ends that (see the comment on #16).
-- OLD-ENVIRON is refused, so the two ENVIRONs are never both on, which hangs inetutils and BSD telnetd.
+- OLD-ENVIRON is refused, so the two ENVIRONs are never both on, which hangs inetutils and BSD telnetd. A caller's policy accepting OLD-ENVIRON, or a runtime request for it, can still put both on: the Core does not guard it (PuTTY turns one off when the other activates), and it never answers an OLD-ENVIRON SEND. The maintainer chose to leave it unguarded on 2026-09-29, as with TM and ECHO at both ends, since only a caller leaving the defaults reaches it; it is theirs to reverse.
 
-## Until NEW-ENVIRON is answered, a default Core stalls telnetd
+## A default Core reaches a telnetd login prompt alone
 
-The default policy offers NEW-ENVIRON, and a Unix telnetd then sends `SB NEW-ENVIRON SEND` and blocks until it gets an `IS`. The Core answers it only from #18, so a Core on the default policy stops before the login prompt. Probed against a netkit telnetd on RHEL 9 on 2026-09-29: with TTYPE answered (#17), the default Core stalls after `TTYPE IS`; with NEW-ENVIRON refused in the policy, the Core alone reaches `login:`.
-
-The maintainer accepted this state between tickets on 2026-09-29 (then for TTYPE and NEW-ENVIRON both), over the alternative of leaving them out of the default until their tickets land: nothing is released before 0.1. It is theirs to reverse.
+With TTYPE (#17), NAWS and NEW-ENVIRON (#18) answered, a Core on the default policy gets a Unix telnetd from connect to its login prompt: probed against a netkit telnetd on RHEL 9 on 2026-09-29, with no help from the probe (`telnetd-netkit-rhel9.txt` is that exchange).
 
 ## The policy decides only what the peer may ask for
 

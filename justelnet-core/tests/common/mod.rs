@@ -10,12 +10,15 @@
 //!   `refuse: <side> <option>` change the Option policy for this option
 //!
 //! - `terminal-types: <name> <name> …` the Option policy's TTYPE list
+//! - `window-size: <width> <height>` the Option policy's NAWS window size
+//! - `variable: "<name>" "<value>"`, `user-variable: "<name>" "<value>"` a
+//!   NEW-ENVIRON VAR or USERVAR in the Option policy; both quoted like data
 //!
 //! Policy lines apply in order, and only before the first step.
 //!
 //! - `server: <hex bytes>` bytes the peer sends; starts a new step
-//! - `call: enable|disable <side> <option>` a runtime request from the caller;
-//!   starts a new step
+//! - `call: enable|disable <side> <option>` a runtime request from the caller,
+//!   or `call: window <width> <height>` a window-size change; starts a new step
 //! - `client: <hex bytes>` bytes the Core must send during the current step
 //! - `event: data "<text>"` an Event the Core must emit during the current step;
 //!   the text accepts `\r`, `\n`, `\\`, `\"` and `\xNN` escapes
@@ -42,10 +45,10 @@ use std::path::{Path, PathBuf};
 
 /// A runtime request the caller makes at the start of a step.
 #[derive(Debug, Clone, Copy)]
-pub struct Call {
-    pub enable: bool,
-    pub side: Side,
-    pub option: TelnetOption,
+pub enum Call {
+    Enable(Side, TelnetOption),
+    Disable(Side, TelnetOption),
+    WindowSize(u16, u16),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -124,6 +127,28 @@ pub fn parse(name: &str, text: &str) -> Transcript {
             .unwrap_or_else(|| panic!("{}: expected `kind: value`", at()));
         let rest = rest.trim();
         match kind.trim() {
+            "window-size" => {
+                assert!(
+                    steps.len() == 1,
+                    "{}: `window-size:` after the first step",
+                    at()
+                );
+                let (w, h) = window(rest, &at());
+                policy = policy.window_size(w, h);
+            }
+            kind @ ("variable" | "user-variable") => {
+                assert!(steps.len() == 1, "{}: `{kind}:` after the first step", at());
+                let (name, value) = rest
+                    .split_once(' ')
+                    .unwrap_or_else(|| panic!("{}: expected `{kind}: <name> \"<value>\"`", at()));
+                let name = String::from_utf8(quoted(name, &at())).expect("UTF-8 name");
+                let value = String::from_utf8(quoted(value.trim(), &at())).expect("UTF-8 value");
+                policy = if kind == "variable" {
+                    policy.variable(name, value)
+                } else {
+                    policy.user_variable(name, value)
+                };
+            }
             "terminal-types" => {
                 assert!(
                     steps.len() == 1,
@@ -158,20 +183,28 @@ pub fn parse(name: &str, text: &str) -> Transcript {
             }
             "call" => {
                 let (verb, target) = rest.split_once(' ').unwrap_or_else(|| {
-                    panic!("{}: expected `enable|disable <side> <option>`", at())
+                    panic!(
+                        "{}: expected `enable|disable <side> <option>` or `window <w> <h>`",
+                        at()
+                    )
                 });
-                let enable = match verb {
-                    "enable" => true,
-                    "disable" => false,
+                let call = match verb {
+                    "enable" => {
+                        let (side, option) = side_option(target, &at());
+                        Call::Enable(side, option)
+                    }
+                    "disable" => {
+                        let (side, option) = side_option(target, &at());
+                        Call::Disable(side, option)
+                    }
+                    "window" => {
+                        let (w, h) = window(target, &at());
+                        Call::WindowSize(w, h)
+                    }
                     other => panic!("{}: unknown call `{other}`", at()),
                 };
-                let (side, option) = side_option(target, &at());
                 steps.push(Step {
-                    call: Some(Call {
-                        enable,
-                        side,
-                        option,
-                    }),
+                    call: Some(call),
                     ..Step::default()
                 });
             }
@@ -205,6 +238,17 @@ fn hex(s: &str, at: &str) -> Vec<u8> {
         out.extend(std::iter::repeat_n(b, n));
     }
     out
+}
+
+fn window(s: &str, at: &str) -> (u16, u16) {
+    let mut n = s.split_whitespace().map(|n| {
+        n.parse::<u16>()
+            .unwrap_or_else(|_| panic!("{at}: bad window dimension `{n}`"))
+    });
+    match (n.next(), n.next(), n.next()) {
+        (Some(w), Some(h), None) => (w, h),
+        _ => panic!("{at}: expected `<width> <height>`"),
+    }
 }
 
 fn side_option(s: &str, at: &str) -> (Side, TelnetOption) {
@@ -340,10 +384,10 @@ pub fn run_step<'a>(
     let mut events = Vec::new();
     replay.core.poll_transmit(&mut client);
     if let Some(call) = step.call {
-        if call.enable {
-            replay.core.request_enable(call.option, call.side);
-        } else {
-            replay.core.request_disable(call.option, call.side);
+        match call {
+            Call::Enable(side, option) => replay.core.request_enable(option, side),
+            Call::Disable(side, option) => replay.core.request_disable(option, side),
+            Call::WindowSize(w, h) => replay.core.set_window_size(w, h),
         }
         replay.drain(&mut events);
         replay.check_query();
