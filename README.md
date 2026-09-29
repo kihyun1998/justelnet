@@ -17,7 +17,7 @@
 </p>
 
 > **Status:** early development, not yet published to crates.io. The Core
-> is complete; the tokio Driver and the Expect session are in progress (see
+> and the tokio Driver are complete; the Expect session is in progress (see
 > the [0.1 map](https://github.com/kihyun1998/justelnet/issues/1)).
 
 ## Crates
