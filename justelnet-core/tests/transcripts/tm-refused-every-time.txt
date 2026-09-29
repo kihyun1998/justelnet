@@ -1,0 +1,8 @@
+# Every DO TM is refused with WONT TM, each time it arrives.
+client: ff fb 1f ff fb 18 ff fb 27 ff fd 01 ff fb 03 ff fd 03
+
+server: ff fd 06 ff fd 06
+client: ff fc 06 ff fc 06
+
+server: ff fd 06
+client: ff fc 06

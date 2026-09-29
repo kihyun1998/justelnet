@@ -1,4 +1,5 @@
 # RFC 1143 queue: a request opposite to one in flight waits for the answer.
+policy: empty
 
 # Enable, then change our mind before the answer (WANTYES, OPPOSITE).
 call: enable remote ECHO

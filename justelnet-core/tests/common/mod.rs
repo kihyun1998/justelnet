@@ -3,8 +3,14 @@
 //! A Transcript is a text file, one directive per line:
 //!
 //! - `# ...` a comment; blank lines are ignored
-//! - `support: <side> <option>` the Option policy accepts the peer enabling
-//!   this option on this side; only before the first step
+//! - `policy: empty` refuse every option on both sides and start passive;
+//!   `policy: passive` start passive. Without either, the default Option
+//!   policy is used
+//! - `accept: <side> <option>`, `request: <side> <option>`,
+//!   `refuse: <side> <option>` change the Option policy for this option
+//!
+//! Policy lines apply in order, and only before the first step.
+//!
 //! - `server: <hex bytes>` bytes the peer sends; starts a new step
 //! - `call: enable|disable <side> <option>` a runtime request from the caller;
 //!   starts a new step
@@ -21,7 +27,7 @@
 
 #![allow(dead_code)]
 
-use justelnet_core::{Core, Event, OptionPolicy, Side, TelnetOption};
+use justelnet_core::{Core, Event, OptionPolicy, Side, Start, TelnetOption};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -108,14 +114,25 @@ pub fn parse(name: &str, text: &str) -> Transcript {
             .unwrap_or_else(|| panic!("{}: expected `kind: value`", at()));
         let rest = rest.trim();
         match kind.trim() {
-            "support" => {
-                assert!(
-                    steps.len() == 1,
-                    "{}: `support:` after the first step",
-                    at()
-                );
-                let (side, option) = side_option(rest, &at());
-                policy = policy.support(option, side);
+            kind @ ("policy" | "accept" | "request" | "refuse") => {
+                assert!(steps.len() == 1, "{}: `{kind}:` after the first step", at());
+                policy = match (kind, rest) {
+                    ("policy", "empty") => policy.refuse_all().start(Start::Passive),
+                    ("policy", "passive") => policy.start(Start::Passive),
+                    ("policy", other) => panic!("{}: unknown policy `{other}`", at()),
+                    ("accept", target) => {
+                        let (side, option) = side_option(target, &at());
+                        policy.accept(option, side)
+                    }
+                    ("request", target) => {
+                        let (side, option) = side_option(target, &at());
+                        policy.request(option, side)
+                    }
+                    (_, target) => {
+                        let (side, option) = side_option(target, &at());
+                        policy.refuse(option, side)
+                    }
+                };
             }
             "call" => {
                 let (verb, target) = rest.split_once(' ').unwrap_or_else(|| {
@@ -280,6 +297,7 @@ pub fn run_step<'a>(
             replay.core.request_disable(call.option, call.side);
         }
         replay.drain(&mut events);
+        replay.check_query();
         replay.core.poll_transmit(&mut client);
     }
     for chunk in chunks {
@@ -287,6 +305,7 @@ pub fn run_step<'a>(
         replay.drain(&mut events);
         replay.core.poll_transmit(&mut client);
     }
+    replay.check_query();
     Outcome {
         client,
         events: coalesce(events),
@@ -294,8 +313,7 @@ pub fn run_step<'a>(
 }
 
 impl Replay {
-    /// Takes every queued Event, then checks the option-state query for every
-    /// option and side against what the OptionChanged Events so far say.
+    /// Takes every queued Event, tracking which options they say are on.
     fn drain(&mut self, events: &mut Vec<Event>) {
         while let Some(e) = self.core.poll_event() {
             assert!(
@@ -320,6 +338,11 @@ impl Replay {
             }
             events.push(e);
         }
+    }
+
+    /// Checks the option-state query for every option and side against what
+    /// the OptionChanged Events so far say.
+    fn check_query(&self) {
         for code in 0..=u8::MAX {
             let option = TelnetOption::new(code);
             for side in [Side::Local, Side::Remote] {

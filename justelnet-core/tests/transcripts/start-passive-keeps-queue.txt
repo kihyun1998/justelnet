@@ -1,0 +1,17 @@
+# A passive start asks only for options still off: an option the caller is
+# already negotiating keeps the caller's queued request.
+policy: passive
+
+call: enable remote SGA
+client: ff fd 03
+
+call: disable remote SGA
+
+server: ff fd 18
+client: ff fb 18
+event: option local TTYPE on
+client: ff fb 1f ff fb 27 ff fd 01 ff fb 03
+
+# The peer agrees to the first request; the caller's queued disable goes out.
+server: ff fb 03
+client: ff fe 03

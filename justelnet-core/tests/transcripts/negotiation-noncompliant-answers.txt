@@ -1,6 +1,7 @@
 # Answers a compliant peer never sends, handled by RFC 1143's error rows:
 # no further bytes are sent, since a noncompliant peer is not trusted.
-support: remote ECHO
+policy: empty
+accept: remote ECHO
 
 server: ff fb 01
 client: ff fd 01

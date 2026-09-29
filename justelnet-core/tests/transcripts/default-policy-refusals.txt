@@ -1,0 +1,10 @@
+# The default policy refuses everything it does not list, on both sides.
+client: ff fb 1f ff fb 18 ff fb 27 ff fd 01 ff fb 03 ff fd 03
+
+# COM-PORT, TSPEED, XDISPLOC, LFLOW, STATUS asked of us.
+server: ff fd 2c ff fd 20 ff fd 23 ff fd 21 ff fd 05
+client: ff fc 2c ff fc 20 ff fc 23 ff fc 21 ff fc 05
+
+# Offered by the peer: COM-PORT, TTYPE, NAWS, TM, OLD-ENVIRON, LINEMODE.
+server: ff fb 2c ff fb 18 ff fb 1f ff fb 06 ff fb 24 ff fb 22
+client: ff fe 2c ff fe 18 ff fe 1f ff fe 06 ff fe 24 ff fe 22
