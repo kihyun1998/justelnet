@@ -1,0 +1,23 @@
+[package]
+name = "justelnet-core-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+justelnet-core = { path = ".." }
+
+# Its own workspace, so the stable workspace never builds libFuzzer.
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "receive"
+path = "fuzz_targets/receive.rs"
+test = false
+doc = false
+bench = false
