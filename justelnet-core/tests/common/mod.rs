@@ -12,6 +12,7 @@
 //! - `terminal-types: <name> <name> …` the Option policy's TTYPE list
 //! - `window-size: <width> <height>` the Option policy's NAWS window size
 //! - `end-of-line: crlf|crnul|lf` what the Option policy sends for a CR
+//! - `passthrough: <option>` a Passthrough option in the Option policy
 //! - `variable: "<name>" "<value>"`, `user-variable: "<name>" "<value>"` a
 //!   NEW-ENVIRON VAR or USERVAR in the Option policy; both quoted like data
 //!
@@ -21,13 +22,18 @@
 //! - `call: enable|disable <side> <option>` a runtime request from the caller,
 //!   `call: window <width> <height>` a window-size change,
 //!   `call: data "<text>"` and `call: raw "<text>"` sending data, or
-//!   `call: command <NOP|DM|BRK|IP|AO|AYT|EC|EL|GA>` sending a command;
+//!   `call: command <NOP|DM|BRK|IP|AO|AYT|EC|EL|GA>` sending a command, or
+//!   `call: subnegotiation <option> <hex bytes>` sending a raw subnegotiation;
 //!   starts a new step
+//! - `error: not-enabled|not-passthrough <option>` the Error the step's call
+//!   must return;
+//!   without it, the call must succeed
 //! - `client: <hex bytes>` bytes the Core must send during the current step
 //! - `event: data "<text>"` an Event the Core must emit during the current step;
 //!   the text accepts `\r`, `\n`, `\\`, `\"` and `\xNN` escapes
 //! - `event: option <side> <option> on|off` an OptionChanged Event
 //! - `event: command <NOP|DM|BRK|IP|AO|AYT|EC|EL|GA>` a Command Event
+//! - `event: subnegotiation <option> <hex bytes>` a Subnegotiation Event
 //! - `event: warning malformed <option> <hex byte>`,
 //!   `event: warning truncated <option>`,
 //!   `event: warning unknown-command <hex byte>` and
@@ -46,7 +52,7 @@
 #![allow(dead_code)]
 
 use justelnet_core::{
-    Command, Core, EndOfLine, Event, OptionPolicy, Side, Start, TelnetOption, Warning,
+    Command, Core, EndOfLine, Error, Event, OptionPolicy, Side, Start, TelnetOption, Warning,
 };
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -60,6 +66,7 @@ pub enum Call {
     Data(Vec<u8>),
     Raw(Vec<u8>),
     Command(Command),
+    Subnegotiation(TelnetOption, Vec<u8>),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -69,6 +76,7 @@ pub struct Step {
     pub client: Vec<u8>,
     pub events: Vec<Event>,
     pub terminal_type_sent: Option<Option<String>>,
+    pub error: Option<Error>,
 }
 
 #[derive(Debug, Clone)]
@@ -138,6 +146,35 @@ pub fn parse(name: &str, text: &str) -> Transcript {
             .unwrap_or_else(|| panic!("{}: expected `kind: value`", at()));
         let rest = rest.trim();
         match kind.trim() {
+            "passthrough" => {
+                assert!(
+                    steps.len() == 1,
+                    "{}: `passthrough:` after the first step",
+                    at()
+                );
+                policy = policy.passthrough(option_named(rest, &at()));
+            }
+            "error" => {
+                let error = match rest.split_once(' ') {
+                    Some(("not-enabled", option)) => Error::OptionNotEnabled {
+                        option: option_named(option.trim(), &at()),
+                    },
+                    Some(("not-passthrough", option)) => Error::NotPassthrough {
+                        option: option_named(option.trim(), &at()),
+                    },
+                    _ => panic!(
+                        "{}: expected `error: not-enabled|not-passthrough <option>`",
+                        at()
+                    ),
+                };
+                let step = steps.last_mut().unwrap();
+                assert!(
+                    matches!(step.call, Some(Call::Subnegotiation(..))),
+                    "{}: `error:` only follows `call: subnegotiation`",
+                    at()
+                );
+                step.error = Some(error);
+            }
             "end-of-line" => {
                 assert!(
                     steps.len() == 1,
@@ -228,6 +265,11 @@ pub fn parse(name: &str, text: &str) -> Transcript {
                     "data" => Call::Data(quoted(target.trim(), &at())),
                     "raw" => Call::Raw(quoted(target.trim(), &at())),
                     "command" => Call::Command(command_named(target.trim(), &at())),
+                    "subnegotiation" => {
+                        let (option, bytes) =
+                            target.trim().split_once(' ').unwrap_or((target.trim(), ""));
+                        Call::Subnegotiation(option_named(option, &at()), hex(bytes, &at()))
+                    }
                     other => panic!("{}: unknown call `{other}`", at()),
                 };
                 steps.push(Step {
@@ -350,6 +392,13 @@ fn event(s: &str, at: &str) -> Event {
             }
         }
         "command" => Event::Command(command_named(arg.trim(), at)),
+        "subnegotiation" => {
+            let (option, bytes) = arg.trim().split_once(' ').unwrap_or((arg.trim(), ""));
+            Event::Subnegotiation {
+                option: option_named(option, at),
+                data: hex(bytes, at),
+            }
+        }
         "warning" => {
             let words: Vec<&str> = arg.split_whitespace().collect();
             match words.as_slice() {
@@ -438,6 +487,14 @@ pub fn run_step<'a>(
             Call::Data(data) => replay.core.send_data(data),
             Call::Raw(data) => replay.core.send_raw(data),
             Call::Command(command) => replay.core.send_command(*command),
+            Call::Subnegotiation(option, data) => {
+                let result = replay.core.send_subnegotiation(*option, data);
+                assert_eq!(
+                    result.err(),
+                    step.error,
+                    "the result of send_subnegotiation"
+                );
+            }
         }
         replay.drain(&mut events);
         replay.check_query();

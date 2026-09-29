@@ -1,0 +1,11 @@
+# send_subnegotiation is for Passthrough options: for an option the Core
+# handles, even one that is on, it fails and sends nothing.
+policy: empty
+accept: local NAWS
+
+server: ff fd 1f
+client: ff fb 1f ff fa 1f 00 50 00 18 ff f0
+event: option local NAWS on
+
+call: subnegotiation NAWS 00 64 00 1e
+error: not-passthrough NAWS

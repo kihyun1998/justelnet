@@ -28,9 +28,38 @@ pub enum Event {
     },
     /// The peer sent a Telnet command.
     Command(Command),
+    /// A subnegotiation for a Passthrough option, its body as received with
+    /// IAC IAC turned into a single 255.
+    Subnegotiation { option: TelnetOption, data: Vec<u8> },
     /// The peer sent something malformed; the Core recovered and went on.
     Warning(Warning),
 }
+
+/// A misuse of the Core's API. The peer's input never produces one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Error {
+    /// A subnegotiation was to be sent for an option that is off on both sides.
+    OptionNotEnabled { option: TelnetOption },
+    /// A subnegotiation was to be sent for an option that is not a
+    /// Passthrough option, whose subnegotiations the Core handles itself.
+    NotPassthrough { option: TelnetOption },
+}
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Error::OptionNotEnabled { option } => {
+                write!(f, "option {} is not enabled on either side", option.code())
+            }
+            Error::NotPassthrough { option } => {
+                write!(f, "option {} is not a Passthrough option", option.code())
+            }
+        }
+    }
+}
+
+impl std::error::Error for Error {}
 
 /// A Telnet command (RFC 854) other than option negotiation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -227,6 +256,8 @@ pub struct OptionPolicy {
     terminal_types: Vec<String>,
     window_size: (u16, u16),
     end_of_line: EndOfLine,
+    /// Options whose subnegotiations go to the caller.
+    passthrough: [bool; 256],
     /// Environment variables for NEW-ENVIRON, in the order they are sent.
     variables: Vec<Variable>,
 }
@@ -288,6 +319,11 @@ impl OptionPolicy {
         self.window_size
     }
 
+    /// Whether `option` is a Passthrough option.
+    pub fn is_passthrough(&self, option: TelnetOption) -> bool {
+        self.passthrough[usize::from(option.0)]
+    }
+
     /// What a CR sent with [`Core::send_data`] becomes.
     pub fn end_of_line(&self) -> EndOfLine {
         self.end_of_line
@@ -314,6 +350,7 @@ impl OptionPolicyBuilder {
                 terminal_types: vec!["UNKNOWN".to_owned()],
                 window_size: (80, 24),
                 end_of_line: EndOfLine::CrLf,
+                passthrough: [false; 256],
                 variables: Vec::new(),
             },
         }
@@ -346,6 +383,16 @@ impl OptionPolicyBuilder {
     /// Open the connection this way.
     pub fn start(mut self, start: Start) -> Self {
         self.policy.start = start;
+        self
+    }
+
+    /// Make `option` a Passthrough option: its subnegotiations reach the
+    /// caller as [`Event::Subnegotiation`] instead of being handled by the
+    /// Core, TTYPE, NAWS and NEW-ENVIRON included. Whether it is accepted or
+    /// asked for is set with [`accept`](Self::accept) and
+    /// [`request`](Self::request).
+    pub fn passthrough(mut self, option: TelnetOption) -> Self {
+        self.policy.passthrough[usize::from(option.0)] = true;
         self
     }
 
@@ -674,6 +721,20 @@ impl Core {
         }
     }
 
+    /// Queues `IAC SB option data IAC SE` for a Passthrough option, doubling
+    /// IAC in `data`. Fails, sending nothing, if `option` is not a Passthrough
+    /// option or is off on both sides.
+    pub fn send_subnegotiation(&mut self, option: TelnetOption, data: &[u8]) -> Result<(), Error> {
+        if !self.policy.is_passthrough(option) {
+            return Err(Error::NotPassthrough { option });
+        }
+        if !self.is_enabled(option, Side::Local) && !self.is_enabled(option, Side::Remote) {
+            return Err(Error::OptionNotEnabled { option });
+        }
+        self.queue_subnegotiation(option, data);
+        Ok(())
+    }
+
     /// Queues `IAC <command>`.
     pub fn send_command(&mut self, command: Command) {
         self.transmit.extend([IAC, command.code()]);
@@ -780,12 +841,24 @@ impl Core {
         }
     }
 
-    /// Handles a complete subnegotiation for `option`. TTYPE SEND and
-    /// NEW-ENVIRON SEND are answered while the option is on on our side;
-    /// every other subnegotiation is discarded.
+    /// Handles a complete subnegotiation for `option`. A Passthrough
+    /// option's goes to the caller while the option is on, or not yet
+    /// confirmed off, on either side;
+    /// otherwise TTYPE SEND and NEW-ENVIRON SEND are answered while the option
+    /// is on on our side, and every other subnegotiation is discarded.
     fn subnegotiated(&mut self, option: TelnetOption) {
         if self.truncated {
             self.warn(Warning::SubnegotiationTruncated { option });
+        }
+        if self.policy.is_passthrough(option) {
+            if self.live(option, Side::Local) || self.live(option, Side::Remote) {
+                self.flush_data();
+                self.events.push_back(Event::Subnegotiation {
+                    option,
+                    data: self.subnegotiation.clone(),
+                });
+            }
+            return;
         }
         if !self.is_enabled(option, Side::Local) || self.subnegotiation.first() != Some(&SEND) {
             return;
@@ -838,19 +911,23 @@ impl Core {
                 push_escaped(&mut body, &name);
             }
         }
-        self.send_subnegotiation(TelnetOption::NEW_ENVIRON, &body);
+        self.queue_subnegotiation(TelnetOption::NEW_ENVIRON, &body);
     }
 
-    /// Sends the window size with NAWS (RFC 1073).
+    /// Sends the window size with NAWS (RFC 1073), unless NAWS is the
+    /// caller's as a Passthrough option.
     fn send_naws(&mut self) {
+        if self.policy.is_passthrough(TelnetOption::NAWS) {
+            return;
+        }
         let (width, height) = self.window_size;
         let [w1, w0] = width.to_be_bytes();
         let [h1, h0] = height.to_be_bytes();
-        self.send_subnegotiation(TelnetOption::NAWS, &[w1, w0, h1, h0]);
+        self.queue_subnegotiation(TelnetOption::NAWS, &[w1, w0, h1, h0]);
     }
 
     /// Queues `IAC SB option body IAC SE`, doubling every 255 in `body`.
-    fn send_subnegotiation(&mut self, option: TelnetOption, body: &[u8]) {
+    fn queue_subnegotiation(&mut self, option: TelnetOption, body: &[u8]) {
         self.transmit.extend([IAC, SB, option.0]);
         self.send_raw(body);
         self.transmit.extend([IAC, SE]);
@@ -869,17 +946,23 @@ impl Core {
         self.ttype_answers += 1;
         let mut body = vec![IS];
         body.extend(name.as_bytes());
-        self.send_subnegotiation(TelnetOption::TTYPE, &body);
+        self.queue_subnegotiation(TelnetOption::TTYPE, &body);
         self.ttype_sent = Some(name);
     }
 
-    /// Whether the peer may be sending binary: its BINARY is on, or we have
-    /// asked it off and its WONT has not arrived (RFC 856).
-    fn peer_binary(&self) -> bool {
+    /// Whether the peer may still be acting on `option` for `side`: it is
+    /// on, or we have asked it off and the peer's confirmation has not
+    /// arrived.
+    fn live(&self, option: TelnetOption, side: Side) -> bool {
         matches!(
-            self.options.0[Side::Remote.index()][usize::from(TelnetOption::BINARY.0)].q,
+            self.options.0[side.index()][usize::from(option.0)].q,
             Q::Yes | Q::WantNo
         )
+    }
+
+    /// Whether the peer may be sending binary (RFC 856).
+    fn peer_binary(&self) -> bool {
+        self.live(TelnetOption::BINARY, Side::Remote)
     }
 
     fn state(&mut self, option: TelnetOption, side: Side) -> &mut OptionState {

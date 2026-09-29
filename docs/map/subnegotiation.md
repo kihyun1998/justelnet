@@ -4,7 +4,7 @@ How the Core takes `IAC SB <option> … IAC SE` out of the stream, what it keeps
 
 ## Which subnegotiations are answered
 
-TTYPE SEND (the body exactly `01`) and NEW-ENVIRON SEND (`01` and a request list) are answered while the option is on on our side; NAWS is sent, never asked for. Every other subnegotiation is discarded; those of Passthrough options reach the caller from #20. A SEND while its option is off gets no answer: RFC 855 has subnegotiation follow agreement, and every telnetd read (target research #2) sends SEND only after the client's WILL.
+TTYPE SEND (the body exactly `01`) and NEW-ENVIRON SEND (`01` and a request list) are answered while the option is on on our side; NAWS is sent, never asked for. A Passthrough option's subnegotiations go to the caller instead (below); every other subnegotiation is discarded. A SEND while its option is off gets no answer: RFC 855 has subnegotiation follow agreement, and every telnetd read (target research #2) sends SEND only after the client's WILL.
 
 ## Recovering from `IAC x` inside a subnegotiation
 
@@ -23,7 +23,7 @@ The decision behind this (#6) calls keeping x "PuTTY's reading" and describes it
 
 The Core keeps at most 4096 bytes of a subnegotiation's body. Past that, bytes are discarded until `IAC SE` (IAC IAC still counts as one byte), the subnegotiation is handled as truncated, and one `SubnegotiationTruncated` Warning is emitted at its end. The rest of the body never reaches Data.
 
-netkit telnetd truncates the same way at 512 bytes. libtelnet grows to 16384 and then abandons the subnegotiation, which sends the rest of the body to the application as data. The 4096 is not measured against anything: it is above every subnegotiation the Core answers or the target research saw (TTYPE and NEW-ENVIRON SENDs are a few bytes) and bounded, and a Passthrough option (#20) with larger subnegotiations is the case that would move it.
+netkit telnetd truncates the same way at 512 bytes. libtelnet grows to 16384 and then abandons the subnegotiation, which sends the rest of the body to the application as data. The 4096 is not measured against anything: it is above every subnegotiation the Core answers or the target research saw (TTYPE and NEW-ENVIRON SENDs are a few bytes) and bounded, and a Passthrough option with larger subnegotiations is the case that would move it.
 
 ## TTYPE
 
@@ -54,3 +54,11 @@ The policy's variables are set with `variable` (VAR) and `user_variable` (USERVA
 INFO (unsolicited changes after the first IS) is not sent.
 
 What the server does with the variables is its own: netkit telnetd (`state.c`, the NEW-ENVIRON IS parser) skips bytes before the first type, unsets a variable sent without VALUE, honours USERVAR only when built with `ACCEPT_USERVAR`, and passes VAR names through `envvarok`, so a caller's variable can be dropped there without any sign on the wire.
+
+## Passthrough options
+
+A Passthrough option's subnegotiations reach the caller as `Event::Subnegotiation`, the body as received with IAC IAC unescaped, while the option is on on at least one side, or asked off by us with the peer's confirmation not yet in: an answer the peer sent before it saw our WONT/DONT still arrives, as with the peer's BINARY (#19). Once it is off on both sides they are discarded, as the Core's own are. The size limit and its Warning apply the same.
+
+`Core::send_subnegotiation` sends one, doubling IAC. It is for Passthrough options only: for any other it returns `Error::NotPassthrough`, since the Core writes those subnegotiations itself and a caller's would interleave with them (a caller NAWS among the Core's). For an option off on both sides it returns `Error::OptionNotEnabled`. Either way nothing is sent; these are the caller misuses the Core reports (#10). Both rules are the maintainer's calls, made on 2026-09-29 over sending for any option that is on and over discarding once we have asked the option off; they are theirs to reverse.
+
+Marking an option Passthrough says only who handles its subnegotiations; whether it is refused, accepted or asked for is set with `refuse`, `accept` and `request` like any other. RFC 2217's COM-PORT, for one, is offered by the client (WILL). A Passthrough mark on TTYPE, NAWS or NEW-ENVIRON takes them over: the Core stops answering SEND and stops sending the window size. Both are the maintainer's calls, made on 2026-09-29 over a Passthrough mark that also accepts the option on both sides, and over a mark the built-in options ignore; they are theirs to reverse.

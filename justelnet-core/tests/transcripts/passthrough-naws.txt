@@ -1,0 +1,10 @@
+# NAWS as a Passthrough option: the Core no longer sends the window size.
+policy: empty
+accept: local NAWS
+passthrough: NAWS
+
+server: ff fd 1f
+client: ff fb 1f
+event: option local NAWS on
+
+call: window 100 30
