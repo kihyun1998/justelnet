@@ -1,0 +1,56 @@
+# RFC 1143 queue: a request opposite to one in flight waits for the answer.
+
+# Enable, then change our mind before the answer (WANTYES, OPPOSITE).
+call: enable remote ECHO
+client: ff fd 01
+
+call: disable remote ECHO
+
+# The peer agrees to the first request; the queued one is sent now, and the
+# option never counts as on.
+server: ff fb 01
+client: ff fe 01
+
+server: ff fc 01
+
+# Enable, change our mind, change it back (the queue empties): only one DO.
+call: enable remote SGA
+client: ff fd 03
+
+call: disable remote SGA
+
+call: enable remote SGA
+
+server: ff fb 03
+event: option remote SGA on
+
+# Disable, then ask again before the answer (WANTNO, OPPOSITE): the DO goes out
+# after the peer's WONT.
+call: disable remote SGA
+client: ff fe 03
+event: option remote SGA off
+
+call: enable remote SGA
+
+server: ff fc 03
+client: ff fd 03
+
+server: ff fb 03
+event: option remote SGA on
+
+# The peer refuses a request: the option stays off, nothing is sent.
+call: enable local TTYPE
+client: ff fb 18
+
+server: ff fe 18
+
+# Refused while a disable is queued: already where the queue was going.
+call: enable remote BINARY
+client: ff fd 00
+
+call: disable remote BINARY
+
+server: ff fc 00
+
+call: enable remote BINARY
+client: ff fd 00

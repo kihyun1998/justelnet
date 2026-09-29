@@ -1,0 +1,28 @@
+# Answers a compliant peer never sends, handled by RFC 1143's error rows:
+# no further bytes are sent, since a noncompliant peer is not trusted.
+support: remote ECHO
+
+server: ff fb 01
+client: ff fd 01
+event: option remote ECHO on
+
+# DONT answered by WILL: the option stays off.
+call: disable remote ECHO
+client: ff fe 01
+event: option remote ECHO off
+
+server: ff fb 01
+
+# The same with an enable queued: the WILL is taken as agreement to it.
+server: ff fb 01
+client: ff fd 01
+event: option remote ECHO on
+
+call: disable remote ECHO
+client: ff fe 01
+event: option remote ECHO off
+
+call: enable remote ECHO
+
+server: ff fb 01
+event: option remote ECHO on

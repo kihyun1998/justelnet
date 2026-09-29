@@ -1,0 +1,22 @@
+# A supported option is accepted once; a repeated request while it is on gets
+# no answer and no Event.
+support: remote ECHO
+support: local SGA
+
+server: 61 ff fb 01 62
+client: ff fd 01
+event: data "a"
+event: option remote ECHO on
+event: data "b"
+
+server: ff fb 01
+# No answer: ECHO is already on.
+
+server: ff fd 03
+client: ff fb 03
+event: option local SGA on
+
+# The peer turns the option off: acknowledged once, Event once.
+server: ff fe 03
+client: ff fc 03
+event: option local SGA off

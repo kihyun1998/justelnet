@@ -1,0 +1,16 @@
+# gensio acknowledges a WONT for an option already off. A DONT or WONT for an
+# option that is off is never answered (RFC 854 rule b), so no loop starts.
+support: remote ECHO
+
+server: ff fe 01 ff fc 01 ff fe 18 ff fc 18
+
+server: ff fb 01
+client: ff fd 01
+event: option remote ECHO on
+
+server: ff fc 01
+client: ff fe 01
+event: option remote ECHO off
+
+# The redundant repeat of the same WONT.
+server: ff fc 01
