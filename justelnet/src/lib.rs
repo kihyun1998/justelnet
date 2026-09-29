@@ -28,6 +28,50 @@ pub enum Event {
     Closed,
 }
 
+/// Why a client call failed.
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum Error {
+    /// Reading from or writing to the stream failed. The connection has ended.
+    Io(io::Error),
+    /// The Core refused the call.
+    Core(core::Error),
+    /// The connection has ended, by a clean close or an earlier I/O error.
+    Closed,
+}
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Error::Io(e) => e.fmt(f),
+            Error::Core(e) => e.fmt(f),
+            Error::Closed => f.write_str("the connection is closed"),
+        }
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Error::Io(e) => e.source(),
+            Error::Core(e) => e.source(),
+            Error::Closed => None,
+        }
+    }
+}
+
+impl From<io::Error> for Error {
+    fn from(e: io::Error) -> Self {
+        Error::Io(e)
+    }
+}
+
+impl From<core::Error> for Error {
+    fn from(e: core::Error) -> Self {
+        Error::Core(e)
+    }
+}
+
 /// A Telnet client over one stream.
 #[derive(Debug)]
 pub struct Client<S> {
@@ -40,6 +84,8 @@ pub struct Client<S> {
     written: usize,
     /// Whether written bytes may still sit in the stream's own buffer.
     unflushed: bool,
+    /// Whether the connection has ended, by a clean close or an I/O error.
+    closed: bool,
 }
 
 impl<S> Client<S>
@@ -60,12 +106,30 @@ where
             outgoing: Vec::new(),
             written: 0,
             unflushed: false,
+            closed: false,
         }
     }
 
     /// Waits for the next Event. Every byte the Core has queued for the peer,
     /// its automatic answers included, is written first.
-    pub async fn next_event(&mut self) -> io::Result<Event> {
+    ///
+    /// A clean close by the peer is [`Event::Closed`]; a failed read or write
+    /// is [`Error::Io`]. Either ends the connection, and every later call
+    /// returns [`Error::Closed`].
+    pub async fn next_event(&mut self) -> Result<Event, Error> {
+        if self.closed {
+            return Err(Error::Closed);
+        }
+        let result = self.drive().await;
+        if matches!(result, Ok(Event::Closed) | Err(_)) {
+            self.closed = true;
+        }
+        result.map_err(Error::Io)
+    }
+
+    /// Writes what the Core has queued, then returns its next Event, reading
+    /// from the stream until there is one.
+    async fn drive(&mut self) -> io::Result<Event> {
         loop {
             self.write_outgoing().await?;
             if let Some(event) = self.core.poll_event() {
