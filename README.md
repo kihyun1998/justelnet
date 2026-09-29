@@ -17,8 +17,8 @@
 </p>
 
 > **Status:** early development, not yet published to crates.io. The Core
-> negotiates options; subnegotiation, the tokio Driver and the Expect session
-> are in progress (see the [0.1 map](https://github.com/kihyun1998/justelnet/issues/1)).
+> is complete; the tokio Driver and the Expect session are in progress (see
+> the [0.1 map](https://github.com/kihyun1998/justelnet/issues/1)).
 
 ## Crates
 
