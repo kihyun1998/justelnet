@@ -12,7 +12,7 @@
 
 use std::io;
 
-use justelnet_core::{Core, OptionPolicy};
+use justelnet_core::{Command, Core, OptionPolicy, Side, TelnetOption};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 /// The sans-IO protocol Core, re-exported.
@@ -122,6 +122,100 @@ where
         }
         let result = self.drive().await;
         if matches!(result, Ok(Event::Closed) | Err(_)) {
+            self.closed = true;
+        }
+        result.map_err(Error::Io)
+    }
+
+    /// Sends `data`: a CR means Enter and becomes the policy's end of line,
+    /// unless BINARY is on on our side; IAC is doubled.
+    pub async fn send_data(&mut self, data: &[u8]) -> Result<(), Error> {
+        self.send_with(|core| {
+            core.send_data(data);
+            Ok(())
+        })
+        .await
+    }
+
+    /// Sends bytes as they are, with only IAC doubled.
+    pub async fn send_raw(&mut self, data: &[u8]) -> Result<(), Error> {
+        self.send_with(|core| {
+            core.send_raw(data);
+            Ok(())
+        })
+        .await
+    }
+
+    /// Sends `IAC <command>`.
+    pub async fn send_command(&mut self, command: Command) -> Result<(), Error> {
+        self.send_with(|core| {
+            core.send_command(command);
+            Ok(())
+        })
+        .await
+    }
+
+    /// Records a new window size, and sends it with NAWS if NAWS is on and
+    /// the size changed.
+    pub async fn set_window_size(&mut self, width: u16, height: u16) -> Result<(), Error> {
+        self.send_with(|core| {
+            core.set_window_size(width, height);
+            Ok(())
+        })
+        .await
+    }
+
+    /// Asks the peer to enable `option` on `side`, whether or not the policy
+    /// accepts it. Sends nothing if the option is on or already being asked for.
+    pub async fn request_enable(&mut self, option: TelnetOption, side: Side) -> Result<(), Error> {
+        self.send_with(|core| {
+            core.request_enable(option, side);
+            Ok(())
+        })
+        .await
+    }
+
+    /// Asks the peer to disable `option` on `side`. The option counts as off
+    /// from this call on. Sends nothing if the option is off or already being
+    /// asked off.
+    pub async fn request_disable(&mut self, option: TelnetOption, side: Side) -> Result<(), Error> {
+        self.send_with(|core| {
+            core.request_disable(option, side);
+            Ok(())
+        })
+        .await
+    }
+
+    /// Sends `IAC SB option data IAC SE` for a Passthrough option, doubling
+    /// IAC in `data`. Fails with [`Error::Core`], sending nothing and leaving
+    /// the connection usable, if `option` is not a Passthrough option or is
+    /// off on both sides.
+    pub async fn send_subnegotiation(
+        &mut self,
+        option: TelnetOption,
+        data: &[u8],
+    ) -> Result<(), Error> {
+        self.send_with(|core| core.send_subnegotiation(option, data))
+            .await
+    }
+
+    /// Whether `option` is currently on for `side`.
+    pub fn is_enabled(&self, option: TelnetOption, side: Side) -> bool {
+        self.core.is_enabled(option, side)
+    }
+
+    /// Hands the Core to `queue`, then writes what it queued. A failed write
+    /// ends the connection.
+    async fn send_with(
+        &mut self,
+        queue: impl FnOnce(&mut Core) -> Result<(), core::Error>,
+    ) -> Result<(), Error> {
+        if self.closed {
+            return Err(Error::Closed);
+        }
+        queue(&mut self.core)?;
+        let result = self.write_outgoing().await;
+        if result.is_err() {
             self.closed = true;
         }
         result.map_err(Error::Io)

@@ -26,6 +26,14 @@ The stream must be `Unpin`, as tokio's `AsyncReadExt::read` requires; a stream t
 
 The Core is re-exported as `justelnet::core`, so both Events and both Errors are told apart by path. A file that does `use justelnet::core;` shadows the standard `core` crate there and writes `::core::` for it. This is the maintainer's call, made on 2026-09-29 over `justelnet::proto` (quinn's name, no clash, but not CONTEXT.md's word) and a glob re-export at the root (whose `Event` would be ambiguous to a reader). It is theirs to reverse.
 
+## Sending
+
+Every send method (`send_data`, `send_raw`, `send_command`, `set_window_size`, `request_enable`, `request_disable`, `send_subnegotiation`) hands the call to the Core under the Core's own name, then writes everything queued, so bytes queued earlier (an answer, an active start) go out first and in order. A Core refusal (`Error::Core`) returns before writing: the call sends nothing, anything queued earlier waits for the next call, and the connection stays usable (#10: caller misuse). A failed write ends the connection like a failed read. After the end, the methods return `Error::Closed` without giving the Core anything. `is_enabled` reads the Core's state and works at any time.
+
+Every method takes `&mut self`, so a caller whose `next_event` future is pending in a `select!` has to drop it to send; that is why #26's cancel safety is what makes a terminal loop possible.
+
+Against the netkit telnetd on RHEL 9 (probed 2026-09-29): login through `send_data`, then `set_window_size(100, 40)` made `stty size` answer `40 100`, and `exit` gave `Closed`, then `Err(Closed)` from the next send.
+
 ## How a connection ends
 
 As #10 decided: a clean EOF is `Event::Closed`, a failed read or write is `Error::Io` with the stream's own error, and either ends the connection, so every later call returns `Error::Closed` without touching the stream. Output still queued at that point is dropped. An EOF is taken as the whole connection ending, not a half-close the peer might still read from. Peer faults stay Warning Events (#10's principle: what the peer sends is data).
