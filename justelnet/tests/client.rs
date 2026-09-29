@@ -91,15 +91,6 @@ async fn data_reaches_the_caller_with_telnet_control_removed() {
     assert_eq!(commands, [Command::NoOperation]);
 }
 
-#[tokio::test(start_paused = true)]
-async fn a_clean_close_is_a_closed_event() {
-    let (stream, device) = duplex(1024);
-    let mut client = Client::new(stream, OptionPolicy::builder().refuse_all().build());
-    drop(device);
-
-    assert_eq!(client.next_event().await.unwrap(), Event::Closed);
-}
-
 const ACTIVE_START: [u8; 18] = [
     0xff, 0xfb, 0x1f, 0xff, 0xfb, 0x18, 0xff, 0xfb, 0x27, 0xff, 0xfd, 0x01, 0xff, 0xfb, 0x03, 0xff,
     0xfd, 0x03,

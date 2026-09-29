@@ -24,7 +24,15 @@ The stream must be `Unpin`, as tokio's `AsyncReadExt::read` requires; a stream t
 
 `justelnet::Event` wraps the Core's Event (`Event::Core(core::Event::Data(..))`) and adds `Closed`, which a clean EOF returns. The Core's Event is `#[non_exhaustive]` and has no Closed, so the client needs its own type; wrapping passes any Event the Core adds through unchanged. This is the maintainer's call, made on 2026-09-29 over a flat mirror of the Core's variants plus Closed (easier to match, but a wildcard arm would silently absorb any new Core variant) and `Result<Option<core::Event>>` with `None` for the end (against #10's "Closed Event"). It is theirs to reverse.
 
-The Core is re-exported as `justelnet::core`, so both Events (and, with #27, both Errors) are told apart by path. A file that does `use justelnet::core;` shadows the standard `core` crate there and writes `::core::` for it. This is the maintainer's call, made on 2026-09-29 over `justelnet::proto` (quinn's name, no clash, but not CONTEXT.md's word) and a glob re-export at the root (whose `Event` would be ambiguous to a reader). It is theirs to reverse.
+The Core is re-exported as `justelnet::core`, so both Events and both Errors are told apart by path. A file that does `use justelnet::core;` shadows the standard `core` crate there and writes `::core::` for it. This is the maintainer's call, made on 2026-09-29 over `justelnet::proto` (quinn's name, no clash, but not CONTEXT.md's word) and a glob re-export at the root (whose `Event` would be ambiguous to a reader). It is theirs to reverse.
+
+## How a connection ends
+
+As #10 decided: a clean EOF is `Event::Closed`, a failed read or write is `Error::Io` with the stream's own error, and either ends the connection, so every later call returns `Error::Closed` without touching the stream. Output still queued at that point is dropped. An EOF is taken as the whole connection ending, not a half-close the peer might still read from. Peer faults stay Warning Events (#10's principle: what the peer sends is data).
+
+Over real sockets on Windows (probed 2026-09-29): a peer's FIN gives `Closed`, then `Err(Closed)`; a reset (SO_LINGER 0) gives `Err(Io)` with `ConnectionReset` (os error 10054), then `Err(Closed)`.
+
+`Error::Io` and `Error::Core` show and chain exactly as the error they wrap (Display and `source` forwarded), so a report printing the whole chain names each cause once. The Error is hand-written like the Core's, with no error-derive dependency.
 
 ## Testing the automatic answer
 
