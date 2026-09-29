@@ -1,0 +1,21 @@
+# send_command sends IAC and the command's code, never another command.
+policy: empty
+
+call: command BRK
+client: ff f3
+call: command IP
+client: ff f4
+call: command AO
+client: ff f5
+call: command AYT
+client: ff f6
+call: command EC
+client: ff f7
+call: command EL
+client: ff f8
+call: command NOP
+client: ff f1
+call: command GA
+client: ff f9
+call: command DM
+client: ff f2

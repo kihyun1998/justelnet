@@ -1,0 +1,22 @@
+# Every command the peer sends becomes a Command Event, in place among the
+# data. DM is reported and nothing around it is discarded (no urgent data on a
+# plain stream).
+policy: empty
+
+server: 61 ff f3 62 ff f4 ff f5 ff f6 ff f7 ff f8 ff f9 ff f1 63
+event: data "a"
+event: command BRK
+event: data "b"
+event: command IP
+event: command AO
+event: command AYT
+event: command EC
+event: command EL
+event: command GA
+event: command NOP
+event: data "c"
+
+server: 64 ff f2 65
+event: data "d"
+event: command DM
+event: data "e"

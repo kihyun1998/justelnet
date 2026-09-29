@@ -17,9 +17,8 @@ use std::collections::VecDeque;
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Event {
-    /// Bytes received from the peer, with `IAC IAC` turned into a single 255
-    /// and option negotiation and subnegotiation removed. Other Telnet
-    /// commands are dropped without an Event.
+    /// Bytes received from the peer with all Telnet control removed: `IAC IAC`
+    /// is a single 255, and CR NUL is CR while the peer's BINARY is off.
     Data(Vec<u8>),
     /// An option turned on or off on one side.
     OptionChanged {
@@ -27,8 +26,79 @@ pub enum Event {
         side: Side,
         enabled: bool,
     },
+    /// The peer sent a Telnet command.
+    Command(Command),
     /// The peer sent something malformed; the Core recovered and went on.
     Warning(Warning),
+}
+
+/// A Telnet command (RFC 854) other than option negotiation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Command {
+    /// NOP, 241.
+    NoOperation,
+    /// DM, 242: the data mark of a Synch.
+    DataMark,
+    /// BRK, 243.
+    Break,
+    /// IP, 244.
+    InterruptProcess,
+    /// AO, 245.
+    AbortOutput,
+    /// AYT, 246.
+    AreYouThere,
+    /// EC, 247.
+    EraseCharacter,
+    /// EL, 248.
+    EraseLine,
+    /// GA, 249.
+    GoAhead,
+}
+
+impl Command {
+    /// The command's code, the byte after IAC.
+    pub const fn code(self) -> u8 {
+        match self {
+            Command::NoOperation => 241,
+            Command::DataMark => 242,
+            Command::Break => 243,
+            Command::InterruptProcess => 244,
+            Command::AbortOutput => 245,
+            Command::AreYouThere => 246,
+            Command::EraseCharacter => 247,
+            Command::EraseLine => 248,
+            Command::GoAhead => 249,
+        }
+    }
+
+    fn from_code(code: u8) -> Option<Self> {
+        Some(match code {
+            241 => Command::NoOperation,
+            242 => Command::DataMark,
+            243 => Command::Break,
+            244 => Command::InterruptProcess,
+            245 => Command::AbortOutput,
+            246 => Command::AreYouThere,
+            247 => Command::EraseCharacter,
+            248 => Command::EraseLine,
+            249 => Command::GoAhead,
+            _ => return None,
+        })
+    }
+}
+
+/// What a CR the caller sends with [`Core::send_data`] becomes on the wire.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum EndOfLine {
+    /// CR LF (RFC 1123 3.3.1).
+    #[default]
+    CrLf,
+    /// CR NUL.
+    CrNul,
+    /// LF alone.
+    Lf,
 }
 
 /// A peer fault the Core recovered from.
@@ -41,6 +111,9 @@ pub enum Warning {
     SubnegotiationTruncated { option: TelnetOption },
     /// The peer answered our DONT with WILL, or our WONT with DO.
     NoncompliantAnswer { option: TelnetOption, side: Side },
+    /// `IAC byte` outside a subnegotiation, where `byte` is not a command
+    /// the Core knows: SE, or anything below 240.
+    UnknownCommand { byte: u8 },
 }
 
 /// A Telnet option code.
@@ -153,6 +226,7 @@ pub struct OptionPolicy {
     start: Start,
     terminal_types: Vec<String>,
     window_size: (u16, u16),
+    end_of_line: EndOfLine,
     /// Environment variables for NEW-ENVIRON, in the order they are sent.
     variables: Vec<Variable>,
 }
@@ -214,6 +288,11 @@ impl OptionPolicy {
         self.window_size
     }
 
+    /// What a CR sent with [`Core::send_data`] becomes.
+    pub fn end_of_line(&self) -> EndOfLine {
+        self.end_of_line
+    }
+
     fn stance(&self, option: TelnetOption, side: Side) -> Stance {
         self.stances[side.index()][usize::from(option.0)]
     }
@@ -234,6 +313,7 @@ impl OptionPolicyBuilder {
                 start: Start::Active,
                 terminal_types: vec!["UNKNOWN".to_owned()],
                 window_size: (80, 24),
+                end_of_line: EndOfLine::CrLf,
                 variables: Vec::new(),
             },
         }
@@ -266,6 +346,12 @@ impl OptionPolicyBuilder {
     /// Open the connection this way.
     pub fn start(mut self, start: Start) -> Self {
         self.policy.start = start;
+        self
+    }
+
+    /// Send a CR given to [`Core::send_data`] as `end_of_line`.
+    pub fn end_of_line(mut self, end_of_line: EndOfLine) -> Self {
+        self.policy.end_of_line = end_of_line;
         self
     }
 
@@ -333,6 +419,9 @@ impl OptionPolicyBuilder {
 }
 
 const IAC: u8 = 255;
+const CR: u8 = b'\r';
+const LF: u8 = b'\n';
+const NUL: u8 = 0;
 const SE: u8 = 240;
 const SB: u8 = 250;
 const WILL: u8 = 251;
@@ -417,6 +506,9 @@ pub struct Core {
     ttype_sent: Option<String>,
     /// The window size NAWS reports, as (width, height).
     window_size: (u16, u16),
+    /// Whether the last byte received was a data CR whose NUL, if next, is
+    /// dropped.
+    cr_seen: bool,
     /// Received data not yet queued as a Data Event.
     data: Vec<u8>,
     events: VecDeque<Event>,
@@ -448,6 +540,7 @@ impl Core {
             ttype_answers: 0,
             ttype_sent: None,
             window_size,
+            cr_seen: false,
             data: Vec::new(),
             events: VecDeque::new(),
             transmit: Vec::new(),
@@ -462,9 +555,15 @@ impl Core {
     pub fn receive(&mut self, bytes: &[u8]) {
         for &b in bytes {
             self.parse = match (self.parse, b) {
-                (Parse::Data, IAC) => Parse::Iac,
+                (Parse::Data, IAC) => {
+                    self.cr_seen = false;
+                    Parse::Iac
+                }
                 (Parse::Data, b) => {
-                    self.data.push(b);
+                    if !(self.cr_seen && b == NUL) {
+                        self.data.push(b);
+                    }
+                    self.cr_seen = b == CR && !self.peer_binary();
                     Parse::Data
                 }
                 (Parse::Iac, b) => self.command(b),
@@ -542,6 +641,42 @@ impl Core {
             (Q::WantYes, false) => self.state(option, side).opposite = true,
             (Q::No, _) | (Q::WantNo, false) | (Q::WantYes, true) => {}
         }
+    }
+
+    /// Queues data to send. A CR means Enter and becomes the policy's
+    /// [`EndOfLine`], unless BINARY is on on our side; IAC is doubled.
+    pub fn send_data(&mut self, data: &[u8]) {
+        if self.is_enabled(TelnetOption::BINARY, Side::Local) {
+            self.send_raw(data);
+            return;
+        }
+        let end_of_line: &[u8] = match self.policy.end_of_line() {
+            EndOfLine::CrLf => &[CR, LF],
+            EndOfLine::CrNul => &[CR, NUL],
+            EndOfLine::Lf => &[LF],
+        };
+        for &b in data {
+            match b {
+                CR => self.transmit.extend(end_of_line),
+                IAC => self.transmit.extend([IAC, IAC]),
+                b => self.transmit.push(b),
+            }
+        }
+    }
+
+    /// Queues bytes to send as they are, with only IAC doubled.
+    pub fn send_raw(&mut self, data: &[u8]) {
+        for &b in data {
+            if b == IAC {
+                self.transmit.push(IAC);
+            }
+            self.transmit.push(b);
+        }
+    }
+
+    /// Queues `IAC <command>`.
+    pub fn send_command(&mut self, command: Command) {
+        self.transmit.extend([IAC, command.code()]);
     }
 
     /// Records a new window size, and sends it with NAWS if NAWS is on and
@@ -624,8 +759,16 @@ impl Core {
             }
             WILL..=DONT => Parse::Verb(b),
             SB => Parse::Sb,
-            // Any other command: the command byte is dropped.
-            _ => Parse::Data,
+            b => {
+                match Command::from_code(b) {
+                    Some(command) => {
+                        self.flush_data();
+                        self.events.push_back(Event::Command(command));
+                    }
+                    None => self.warn(Warning::UnknownCommand { byte: b }),
+                }
+                Parse::Data
+            }
         }
     }
 
@@ -709,12 +852,7 @@ impl Core {
     /// Queues `IAC SB option body IAC SE`, doubling every 255 in `body`.
     fn send_subnegotiation(&mut self, option: TelnetOption, body: &[u8]) {
         self.transmit.extend([IAC, SB, option.0]);
-        for &b in body {
-            if b == IAC {
-                self.transmit.push(IAC);
-            }
-            self.transmit.push(b);
-        }
+        self.send_raw(body);
         self.transmit.extend([IAC, SE]);
     }
 
@@ -733,6 +871,15 @@ impl Core {
         body.extend(name.as_bytes());
         self.send_subnegotiation(TelnetOption::TTYPE, &body);
         self.ttype_sent = Some(name);
+    }
+
+    /// Whether the peer may be sending binary: its BINARY is on, or we have
+    /// asked it off and its WONT has not arrived (RFC 856).
+    fn peer_binary(&self) -> bool {
+        matches!(
+            self.options.0[Side::Remote.index()][usize::from(TelnetOption::BINARY.0)].q,
+            Q::Yes | Q::WantNo
+        )
     }
 
     fn state(&mut self, option: TelnetOption, side: Side) -> &mut OptionState {

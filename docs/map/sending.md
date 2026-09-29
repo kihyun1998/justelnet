@@ -1,0 +1,15 @@
+# Sending
+
+How the caller's bytes and commands become bytes on the wire.
+
+## A CR means Enter
+
+`send_data` turns every CR into the policy's end of line: CR LF by default (RFC 1123 §3.3.1's SHOULD), CR NUL, or LF, the setting per device that the Cisco reverse-telnet knobs show is needed. LF and every other byte pass through; IAC is doubled. So a caller that sends CR LF for Enter sends CR LF LF under the default: the caller sends CR alone for Enter, the way a terminal's Enter key does.
+
+PuTTY splits the two: its Enter is a special (`SS_EOL`, CR LF, or CR alone under BINARY), and a CR inside data is sent as CR NUL, RFC 854's bare CR. The Core has one data path, so a caller that needs a CR without Enter on the wire uses `send_raw`, which sends it bare: RFC 854 wants CR NUL there while BINARY is off, so the caller writes the NUL itself (`send_raw(b"\r\0")`). PuTTY and libtelnet stuff the NUL for it; `send_raw` translates nothing on purpose.
+
+While BINARY is on on our side, `send_data` translates nothing and only doubles IAC, as `send_raw` always does. "On" is agreed, not asked for: after our WILL BINARY and before the peer's DO, a CR is still translated (RFC 856). Receiving is the mirror: the peer counts as binary until its WONT arrives, even after our DONT.
+
+## Commands
+
+`send_command` sends IAC and the command's own code, nothing else: Break is never sent as IP or the other way round (some devices treat them differently; Cisco has a knob to turn IP into a line BREAK). One `Command` type serves both directions, so GA and DM can be sent too. A DM sent this way carries no TCP urgent mark, which only the Driver could add. The single type is the maintainer's call, made on 2026-09-29 over a separate send-only type without GA and DM; it is theirs to reverse.

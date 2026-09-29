@@ -1,0 +1,38 @@
+# CR NUL from the peer becomes CR while its BINARY is off; CR LF and a bare LF
+# pass through as data.
+policy: empty
+accept: remote BINARY
+
+server: 61 0d 00 62 0d 0a 63 0a 0d 0d 00
+event: data "a\rb\r\nc\n\r\r"
+
+# A CR at the end of one read and the NUL at the start of the next.
+server: 64 0d
+event: data "d\r"
+server: 00 65
+event: data "e"
+
+# Only a NUL right after the CR is dropped: a command in between keeps it.
+server: 0d ff f1 00
+event: data "\r"
+event: command NOP
+event: data "\x00"
+
+# With the peer's BINARY on, CR NUL stays.
+server: ff fb 00
+client: ff fd 00
+event: option remote BINARY on
+
+server: 0d 00
+event: data "\r\x00"
+
+# Asked off, the peer is still binary until its WONT arrives (RFC 856).
+call: disable remote BINARY
+client: ff fe 00
+event: option remote BINARY off
+
+server: 0d 00
+event: data "\r\x00"
+
+server: ff fc 00 0d 00
+event: data "\r"

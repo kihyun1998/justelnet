@@ -1,0 +1,6 @@
+# End of line CR NUL.
+policy: empty
+end-of-line: crnul
+
+call: data "ls\r"
+client: 6c 73 0d 00

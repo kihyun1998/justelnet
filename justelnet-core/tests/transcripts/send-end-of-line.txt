@@ -1,0 +1,16 @@
+# send_data: a CR means Enter and becomes the policy's end of line, CR LF by
+# default (RFC 1123 3.3.1); IAC is doubled; LF passes as it is.
+policy: empty
+
+call: data "ls\r"
+client: 6c 73 0d 0a
+
+call: data "a\xffb"
+client: 61 ff ff 62
+
+call: data "x\ny"
+client: 78 0a 79
+
+# A CR LF from the caller is Enter then LF: the CR alone means Enter.
+call: data "\r\n"
+client: 0d 0a 0a
