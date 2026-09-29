@@ -4,22 +4,11 @@ use std::time::Duration;
 
 use justelnet::core::{self, Command, OptionPolicy, Side, TelnetOption};
 use justelnet::{Client, Event};
-use tokio::io::{AsyncReadExt, AsyncWriteExt, BufWriter, DuplexStream, duplex};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, BufWriter, duplex};
 
-/// Every byte the device can read without waiting.
-async fn received(device: &mut DuplexStream) -> Vec<u8> {
-    let mut received = Vec::new();
-    let mut buf = [0; 1024];
-    while let Ok(Ok(n)) =
-        tokio::time::timeout(Duration::from_millis(10), device.read(&mut buf)).await
-    {
-        if n == 0 {
-            break;
-        }
-        received.extend_from_slice(&buf[..n]);
-    }
-    received
-}
+mod common;
+
+use common::received;
 
 #[tokio::test(start_paused = true)]
 async fn active_start_bytes_reach_the_device() {
