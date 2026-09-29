@@ -1,0 +1,10 @@
+# The policy's window size is the one NAWS starts with.
+window-size: 132 43
+client: ff fb 1f ff fb 18 ff fb 27 ff fd 01 ff fb 03 ff fd 03
+
+server: ff fd 1f
+client: ff fa 1f 00 84 00 2b ff f0
+event: option local NAWS on
+
+# Setting that same size is no change.
+call: window 132 43

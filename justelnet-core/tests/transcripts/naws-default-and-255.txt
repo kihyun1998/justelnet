@@ -1,0 +1,9 @@
+# The default window size is 80x24; a 255 in the size is sent as IAC IAC.
+client: ff fb 1f ff fb 18 ff fb 27 ff fd 01 ff fb 03 ff fd 03
+
+server: ff fd 1f
+client: ff fa 1f 00 50 00 18 ff f0
+event: option local NAWS on
+
+call: window 255 511
+client: ff fa 1f 00 ff ff 01 ff ff ff f0

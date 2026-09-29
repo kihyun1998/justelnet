@@ -130,7 +130,8 @@ pub enum Start {
 }
 
 /// The options the Core accepts when the peer asks for them, the ones it asks
-/// for itself, and how it opens the connection.
+/// for itself, how it opens the connection, and the values it answers
+/// subnegotiations with: terminal types, window size, environment variables.
 ///
 /// The default policy is a character-mode terminal client with an active start:
 ///
@@ -141,7 +142,9 @@ pub enum Start {
 /// | SGA | request | request |
 /// | TTYPE, NAWS, NEW-ENVIRON | request | refuse |
 ///
-/// Every other option is refused on both sides, TM included.
+/// Every other option is refused on both sides, TM included. The terminal
+/// types are `["UNKNOWN"]`, the window size 80x24, and there are no
+/// environment variables.
 #[derive(Debug, Clone)]
 pub struct OptionPolicy {
     stances: [[Stance; 256]; 2],
@@ -149,6 +152,18 @@ pub struct OptionPolicy {
     requests: Vec<(TelnetOption, Side)>,
     start: Start,
     terminal_types: Vec<String>,
+    window_size: (u16, u16),
+    /// Environment variables for NEW-ENVIRON, in the order they are sent.
+    variables: Vec<Variable>,
+}
+
+/// One NEW-ENVIRON variable of an [`OptionPolicy`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Variable {
+    /// Well known (VAR) rather than user defined (USERVAR).
+    well_known: bool,
+    name: String,
+    value: String,
 }
 
 impl Default for OptionPolicy {
@@ -194,6 +209,11 @@ impl OptionPolicy {
         &self.terminal_types
     }
 
+    /// The window size NAWS starts with, as (width, height).
+    pub fn window_size(&self) -> (u16, u16) {
+        self.window_size
+    }
+
     fn stance(&self, option: TelnetOption, side: Side) -> Stance {
         self.stances[side.index()][usize::from(option.0)]
     }
@@ -213,6 +233,8 @@ impl OptionPolicyBuilder {
                 requests: Vec::new(),
                 start: Start::Active,
                 terminal_types: vec!["UNKNOWN".to_owned()],
+                window_size: (80, 24),
+                variables: Vec::new(),
             },
         }
     }
@@ -244,6 +266,40 @@ impl OptionPolicyBuilder {
     /// Open the connection this way.
     pub fn start(mut self, start: Start) -> Self {
         self.policy.start = start;
+        self
+    }
+
+    /// Start NAWS with this window size.
+    pub fn window_size(mut self, width: u16, height: u16) -> Self {
+        self.policy.window_size = (width, height);
+        self
+    }
+
+    /// Send the well-known (VAR) environment variable `name` with `value`
+    /// when NEW-ENVIRON asks for it, replacing any earlier value.
+    pub fn variable(self, name: impl Into<String>, value: impl Into<String>) -> Self {
+        self.set_variable(true, name.into(), value.into())
+    }
+
+    /// Send the user-defined (USERVAR) environment variable `name` with
+    /// `value` when NEW-ENVIRON asks for it, replacing any earlier value.
+    pub fn user_variable(self, name: impl Into<String>, value: impl Into<String>) -> Self {
+        self.set_variable(false, name.into(), value.into())
+    }
+
+    fn set_variable(mut self, well_known: bool, name: String, value: String) -> Self {
+        let variables = &mut self.policy.variables;
+        match variables
+            .iter_mut()
+            .find(|v| v.well_known == well_known && v.name == name)
+        {
+            Some(v) => v.value = value,
+            None => variables.push(Variable {
+                well_known,
+                name,
+                value,
+            }),
+        }
         self
     }
 
@@ -304,8 +360,15 @@ enum Parse {
 /// The most subnegotiation bytes the Core keeps; the rest are discarded.
 const SUBNEGOTIATION_LIMIT: usize = 4096;
 
-const TTYPE_IS: u8 = 0;
-const TTYPE_SEND: u8 = 1;
+/// TTYPE and NEW-ENVIRON: IS and SEND.
+const IS: u8 = 0;
+const SEND: u8 = 1;
+
+/// NEW-ENVIRON: VAR, VALUE, ESC, USERVAR (RFC 1572).
+const VAR: u8 = 0;
+const VALUE: u8 = 1;
+const ESC: u8 = 2;
+const USERVAR: u8 = 3;
 
 /// An option's negotiation state on one side, RFC 1143's `us`/`him`.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -352,6 +415,8 @@ pub struct Core {
     ttype_answers: usize,
     /// The terminal type last sent in answer to TTYPE SEND.
     ttype_sent: Option<String>,
+    /// The window size NAWS reports, as (width, height).
+    window_size: (u16, u16),
     /// Received data not yet queued as a Data Event.
     data: Vec<u8>,
     events: VecDeque<Event>,
@@ -372,6 +437,7 @@ impl Core {
 
     /// A Core for a new connection, answering the peer from `policy`.
     pub fn with_policy(policy: OptionPolicy) -> Self {
+        let window_size = policy.window_size();
         let mut core = Self {
             policy,
             options: Options::default(),
@@ -381,6 +447,7 @@ impl Core {
             truncated: false,
             ttype_answers: 0,
             ttype_sent: None,
+            window_size,
             data: Vec::new(),
             events: VecDeque::new(),
             transmit: Vec::new(),
@@ -477,6 +544,18 @@ impl Core {
         }
     }
 
+    /// Records a new window size, and sends it with NAWS if NAWS is on and
+    /// the size changed.
+    pub fn set_window_size(&mut self, width: u16, height: u16) {
+        if self.window_size == (width, height) {
+            return;
+        }
+        self.window_size = (width, height);
+        if self.is_enabled(TelnetOption::NAWS, Side::Local) {
+            self.send_naws();
+        }
+    }
+
     /// The terminal type the Core last sent in answer to TTYPE SEND.
     pub fn terminal_type_sent(&self) -> Option<&str> {
         self.ttype_sent.as_deref()
@@ -513,6 +592,9 @@ impl Core {
         *self.state(option, side) = OptionState { q, opposite: false };
         if let Some(enable) = send {
             self.send(option, side, enable);
+        }
+        if changed == Some(true) && option == TelnetOption::NAWS && side == Side::Local {
+            self.send_naws();
         }
         if let Some(enabled) = changed {
             self.changed(option, side, enabled);
@@ -555,18 +637,85 @@ impl Core {
         }
     }
 
-    /// Handles a complete subnegotiation for `option`. Only TTYPE SEND is
-    /// answered; every other subnegotiation is discarded.
+    /// Handles a complete subnegotiation for `option`. TTYPE SEND and
+    /// NEW-ENVIRON SEND are answered while the option is on on our side;
+    /// every other subnegotiation is discarded.
     fn subnegotiated(&mut self, option: TelnetOption) {
         if self.truncated {
             self.warn(Warning::SubnegotiationTruncated { option });
         }
-        if option == TelnetOption::TTYPE
-            && self.subnegotiation == [TTYPE_SEND]
-            && self.is_enabled(option, Side::Local)
-        {
-            self.answer_ttype();
+        if !self.is_enabled(option, Side::Local) || self.subnegotiation.first() != Some(&SEND) {
+            return;
         }
+        if option == TelnetOption::TTYPE && self.subnegotiation.len() == 1 {
+            self.answer_ttype();
+        } else if option == TelnetOption::NEW_ENVIRON {
+            let request = std::mem::take(&mut self.subnegotiation);
+            self.answer_environ(&request[1..]);
+            self.subnegotiation = request;
+        }
+    }
+
+    /// Sends NEW-ENVIRON IS for a SEND whose list is `request` (RFC 1572):
+    /// with no list, every VAR then every USERVAR; otherwise each entry in
+    /// order, a type with no name standing for every variable of that type,
+    /// and a variable the policy lacks sent as its name alone.
+    fn answer_environ(&mut self, request: &[u8]) {
+        let mut entries: Vec<(bool, Vec<u8>)> = Vec::new();
+        let mut escaped = false;
+        for &b in request {
+            match (escaped, entries.last_mut()) {
+                (false, _) if b == VAR || b == USERVAR => entries.push((b == VAR, Vec::new())),
+                (false, _) if b == ESC => escaped = true,
+                (_, Some((_, name))) => {
+                    name.push(b);
+                    escaped = false;
+                }
+                (_, None) => escaped = false,
+            }
+        }
+        if request.is_empty() {
+            entries = vec![(true, Vec::new()), (false, Vec::new())];
+        }
+        let mut body = vec![IS];
+        for (well_known, name) in entries {
+            let kind = if well_known { VAR } else { USERVAR };
+            let mut found = false;
+            for v in &self.policy.variables {
+                if v.well_known == well_known && (name.is_empty() || name == v.name.as_bytes()) {
+                    body.push(kind);
+                    push_escaped(&mut body, v.name.as_bytes());
+                    body.push(VALUE);
+                    push_escaped(&mut body, v.value.as_bytes());
+                    found = true;
+                }
+            }
+            if !found && !name.is_empty() {
+                body.push(kind);
+                push_escaped(&mut body, &name);
+            }
+        }
+        self.send_subnegotiation(TelnetOption::NEW_ENVIRON, &body);
+    }
+
+    /// Sends the window size with NAWS (RFC 1073).
+    fn send_naws(&mut self) {
+        let (width, height) = self.window_size;
+        let [w1, w0] = width.to_be_bytes();
+        let [h1, h0] = height.to_be_bytes();
+        self.send_subnegotiation(TelnetOption::NAWS, &[w1, w0, h1, h0]);
+    }
+
+    /// Queues `IAC SB option body IAC SE`, doubling every 255 in `body`.
+    fn send_subnegotiation(&mut self, option: TelnetOption, body: &[u8]) {
+        self.transmit.extend([IAC, SB, option.0]);
+        for &b in body {
+            if b == IAC {
+                self.transmit.push(IAC);
+            }
+            self.transmit.push(b);
+        }
+        self.transmit.extend([IAC, SE]);
     }
 
     /// Sends TTYPE IS with the next name in RFC 1091's cycle: each name in
@@ -580,10 +729,9 @@ impl Core {
             types[at.min(types.len() - 1)].clone()
         };
         self.ttype_answers += 1;
-        self.transmit
-            .extend([IAC, SB, TelnetOption::TTYPE.0, TTYPE_IS]);
-        self.transmit.extend(name.as_bytes());
-        self.transmit.extend([IAC, SE]);
+        let mut body = vec![IS];
+        body.extend(name.as_bytes());
+        self.send_subnegotiation(TelnetOption::TTYPE, &body);
         self.ttype_sent = Some(name);
     }
 
@@ -633,5 +781,16 @@ impl Core {
     /// Appends every queued outgoing byte to `buf`.
     pub fn poll_transmit(&mut self, buf: &mut Vec<u8>) {
         buf.append(&mut self.transmit);
+    }
+}
+
+/// Appends `bytes` to a NEW-ENVIRON body, escaping VAR, VALUE, ESC and
+/// USERVAR with ESC.
+fn push_escaped(body: &mut Vec<u8>, bytes: &[u8]) {
+    for &b in bytes {
+        if matches!(b, VAR | VALUE | ESC | USERVAR) {
+            body.push(ESC);
+        }
+        body.push(b);
     }
 }

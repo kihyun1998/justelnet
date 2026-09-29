@@ -1,0 +1,26 @@
+# NAWS sends the window size as soon as it is on, then on every change
+# (RFC 1073). A size set while NAWS is not yet on is kept for when it is.
+client: ff fb 1f ff fb 18 ff fb 27 ff fd 01 ff fb 03 ff fd 03
+
+call: window 100 30
+
+server: ff fd 1f
+client: ff fa 1f 00 64 00 1e ff f0
+event: option local NAWS on
+
+call: window 132 43
+client: ff fa 1f 00 84 00 2b ff f0
+
+# The same size again is no change.
+call: window 132 43
+
+# Turned off, nothing is sent; turned on again, the size is sent after WILL.
+server: ff fe 1f
+client: ff fc 1f
+event: option local NAWS off
+
+call: window 80 25
+
+server: ff fd 1f
+client: ff fb 1f ff fa 1f 00 50 00 19 ff f0
+event: option local NAWS on

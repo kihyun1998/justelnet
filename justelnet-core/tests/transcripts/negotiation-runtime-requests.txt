@@ -26,7 +26,9 @@ server: ff fc 00
 call: enable local NAWS
 client: ff fb 1f
 
+# NAWS on sends the window size (80x24 unless the policy says otherwise).
 server: ff fd 1f
+client: ff fa 1f 00 50 00 18 ff f0
 event: option local NAWS on
 
 server: ff fe 1f
