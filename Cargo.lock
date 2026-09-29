@@ -105,6 +105,10 @@ dependencies = [
 [[package]]
 name = "justelnet-expect"
 version = "0.0.0"
+dependencies = [
+ "justelnet",
+ "tokio",
+]
 
 [[package]]
 name = "libc"
