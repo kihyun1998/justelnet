@@ -45,7 +45,7 @@ RFC 1143 marks two rows as errors: the peer answering our DONT/WONT with WILL/DO
 
 ## Redundant requests send nothing
 
-A runtime request that RFC 1143 marks as an error (already on, already asked for, already queued) is a no-op: there is no Core Error type until #20. RFC 854 rule b (never acknowledge a request for a state already in effect) and the receive tables together are what stop peers such as gensio, which acknowledge a WONT for an option already off, from starting a loop.
+A runtime request that RFC 1143 marks as an error (already on, already asked for, already queued) is a no-op, not an `Err`: the option is already where the caller wants it, so it is not a misuse, and `Err` is kept for misuse (#10). The maintainer chose this on 2026-09-29, once the Core had an Error type, over returning `Result` with an AlreadyEnabled-style variant; it is theirs to reverse. RFC 854 rule b (never acknowledge a request for a state already in effect) and the receive tables together are what stop peers such as gensio, which acknowledge a WONT for an option already off, from starting a loop.
 
 ## Names
 

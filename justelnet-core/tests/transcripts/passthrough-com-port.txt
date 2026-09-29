@@ -1,0 +1,38 @@
+# A Passthrough option (COM-PORT, RFC 2217) is negotiated like any other and
+# its subnegotiations cross unparsed in both directions.
+policy: empty
+request: local COM-PORT
+passthrough: COM-PORT
+
+# Refused before it is on: nothing is sent.
+call: subnegotiation COM-PORT 01 00 00 25 80
+error: not-enabled COM-PORT
+
+server: ff fd 2c
+client: ff fb 2c
+event: option local COM-PORT on
+
+# SET-BAUDRATE 9600 out; a 255 in the body is doubled.
+call: subnegotiation COM-PORT 01 00 00 25 80
+client: ff fa 2c 01 00 00 25 80 ff f0
+
+call: subnegotiation COM-PORT 05 ff
+client: ff fa 2c 05 ff ff ff f0
+
+# The access server's answer, 101, reaches the caller as received, IAC IAC as
+# one 255.
+server: 61 ff fa 2c 65 00 00 25 80 ff ff ff f0 62
+event: data "a"
+event: subnegotiation COM-PORT 65 00 00 25 80 ff
+event: data "b"
+
+# Turned off by the caller: an answer the server sent before it saw our WONT
+# still reaches the caller; once the server's DONT is in, they are discarded.
+call: disable local COM-PORT
+client: ff fc 2c
+event: option local COM-PORT off
+
+server: ff fa 2c 65 00 00 4b 00 ff f0
+event: subnegotiation COM-PORT 65 00 00 4b 00
+
+server: ff fe 2c ff fa 2c 65 00 ff f0

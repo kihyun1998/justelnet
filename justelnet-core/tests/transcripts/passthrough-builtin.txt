@@ -1,0 +1,14 @@
+# A Passthrough option the Core would otherwise handle is the caller's: TTYPE
+# SEND is handed over, not answered.
+policy: empty
+accept: local TTYPE
+passthrough: TTYPE
+
+server: ff fd 18 ff fa 18 01 ff f0
+client: ff fb 18
+event: option local TTYPE on
+event: subnegotiation TTYPE 01
+terminal-type-sent: none
+
+call: subnegotiation TTYPE 00 56 54 31 30 30
+client: ff fa 18 00 56 54 31 30 30 ff f0
