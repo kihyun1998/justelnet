@@ -18,8 +18,8 @@ use std::collections::VecDeque;
 #[non_exhaustive]
 pub enum Event {
     /// Bytes received from the peer, with `IAC IAC` turned into a single 255
-    /// and option negotiation removed. Other Telnet commands are not parsed:
-    /// only the byte after IAC is dropped.
+    /// and option negotiation and subnegotiation removed. Other Telnet
+    /// commands are dropped without an Event.
     Data(Vec<u8>),
     /// An option turned on or off on one side.
     OptionChanged {
@@ -27,6 +27,20 @@ pub enum Event {
         side: Side,
         enabled: bool,
     },
+    /// The peer sent something malformed; the Core recovered and went on.
+    Warning(Warning),
+}
+
+/// A peer fault the Core recovered from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Warning {
+    /// `IAC byte` inside a subnegotiation, where `byte` is neither SE nor IAC.
+    MalformedSubnegotiation { option: TelnetOption, byte: u8 },
+    /// A subnegotiation longer than the Core keeps; the rest was discarded.
+    SubnegotiationTruncated { option: TelnetOption },
+    /// The peer answered our DONT with WILL, or our WONT with DO.
+    NoncompliantAnswer { option: TelnetOption, side: Side },
 }
 
 /// A Telnet option code.
@@ -134,6 +148,7 @@ pub struct OptionPolicy {
     /// Requested options, in the order they are asked for.
     requests: Vec<(TelnetOption, Side)>,
     start: Start,
+    terminal_types: Vec<String>,
 }
 
 impl Default for OptionPolicy {
@@ -174,6 +189,11 @@ impl OptionPolicy {
         self.start
     }
 
+    /// The terminal types TTYPE answers with, most specific first.
+    pub fn terminal_types(&self) -> &[String] {
+        &self.terminal_types
+    }
+
     fn stance(&self, option: TelnetOption, side: Side) -> Stance {
         self.stances[side.index()][usize::from(option.0)]
     }
@@ -192,6 +212,7 @@ impl OptionPolicyBuilder {
                 stances: [[Stance::Refuse; 256]; 2],
                 requests: Vec::new(),
                 start: Start::Active,
+                terminal_types: vec!["UNKNOWN".to_owned()],
             },
         }
     }
@@ -226,6 +247,17 @@ impl OptionPolicyBuilder {
         self
     }
 
+    /// Answer TTYPE with these terminal types, most specific first
+    /// (RFC 1091). An empty list answers `UNKNOWN`.
+    pub fn terminal_types<I, T>(mut self, types: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<String>,
+    {
+        self.policy.terminal_types = types.into_iter().map(Into::into).collect();
+        self
+    }
+
     /// The finished policy.
     pub fn build(self) -> OptionPolicy {
         self.policy
@@ -245,6 +277,8 @@ impl OptionPolicyBuilder {
 }
 
 const IAC: u8 = 255;
+const SE: u8 = 240;
+const SB: u8 = 250;
 const WILL: u8 = 251;
 const WONT: u8 = 252;
 const DO: u8 = 253;
@@ -259,7 +293,19 @@ enum Parse {
     Iac,
     /// The previous bytes were IAC and this WILL, WONT, DO or DONT.
     Verb(u8),
+    /// The previous bytes were IAC SB; the next is the option.
+    Sb,
+    /// Inside a subnegotiation for this option.
+    SbData(TelnetOption),
+    /// Inside a subnegotiation for this option, just after IAC.
+    SbIac(TelnetOption),
 }
+
+/// The most subnegotiation bytes the Core keeps; the rest are discarded.
+const SUBNEGOTIATION_LIMIT: usize = 4096;
+
+const TTYPE_IS: u8 = 0;
+const TTYPE_SEND: u8 = 1;
 
 /// An option's negotiation state on one side, RFC 1143's `us`/`him`.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -298,6 +344,14 @@ pub struct Core {
     /// passive start waits for the peer.
     started: bool,
     parse: Parse,
+    /// The body of the subnegotiation being received, up to the limit.
+    subnegotiation: Vec<u8>,
+    /// Whether the subnegotiation being received passed the limit.
+    truncated: bool,
+    /// How many TTYPE SENDs have been answered.
+    ttype_answers: usize,
+    /// The terminal type last sent in answer to TTYPE SEND.
+    ttype_sent: Option<String>,
     /// Received data not yet queued as a Data Event.
     data: Vec<u8>,
     events: VecDeque<Event>,
@@ -323,6 +377,10 @@ impl Core {
             options: Options::default(),
             started: false,
             parse: Parse::default(),
+            subnegotiation: Vec::new(),
+            truncated: false,
+            ttype_answers: 0,
+            ttype_sent: None,
             data: Vec::new(),
             events: VecDeque::new(),
             transmit: Vec::new(),
@@ -342,13 +400,7 @@ impl Core {
                     self.data.push(b);
                     Parse::Data
                 }
-                (Parse::Iac, IAC) => {
-                    self.data.push(IAC);
-                    Parse::Data
-                }
-                (Parse::Iac, verb @ WILL..=DONT) => Parse::Verb(verb),
-                // IAC followed by any other byte: the command byte is dropped.
-                (Parse::Iac, _) => Parse::Data,
+                (Parse::Iac, b) => self.command(b),
                 (Parse::Verb(verb), code) => {
                     let option = TelnetOption(code);
                     match verb {
@@ -358,6 +410,35 @@ impl Core {
                         _ => self.received(option, Side::Local, false),
                     }
                     Parse::Data
+                }
+                (Parse::Sb, code) => {
+                    self.subnegotiation.clear();
+                    self.truncated = false;
+                    Parse::SbData(TelnetOption(code))
+                }
+                (Parse::SbData(option), IAC) => Parse::SbIac(option),
+                (Parse::SbData(option), b) => {
+                    self.subnegotiation_byte(b);
+                    Parse::SbData(option)
+                }
+                (Parse::SbIac(option), SE) => {
+                    self.subnegotiated(option);
+                    Parse::Data
+                }
+                (Parse::SbIac(option), IAC) => {
+                    self.subnegotiation_byte(IAC);
+                    Parse::SbData(option)
+                }
+                (Parse::SbIac(option), byte @ 241..=254) => {
+                    self.warn(Warning::MalformedSubnegotiation { option, byte });
+                    self.subnegotiated(option);
+                    self.command(byte)
+                }
+                (Parse::SbIac(option), byte) => {
+                    self.warn(Warning::MalformedSubnegotiation { option, byte });
+                    self.subnegotiation_byte(IAC);
+                    self.subnegotiation_byte(byte);
+                    Parse::SbData(option)
                 }
             };
         }
@@ -396,6 +477,11 @@ impl Core {
         }
     }
 
+    /// The terminal type the Core last sent in answer to TTYPE SEND.
+    pub fn terminal_type_sent(&self) -> Option<&str> {
+        self.ttype_sent.as_deref()
+    }
+
     /// Whether `option` is currently on for `side`.
     pub fn is_enabled(&self, option: TelnetOption, side: Side) -> bool {
         self.options.0[side.index()][usize::from(option.0)].q == Q::Yes
@@ -405,6 +491,9 @@ impl Core {
     /// `side`, by RFC 1143's receive tables.
     fn received(&mut self, option: TelnetOption, side: Side, enable: bool) {
         let st = *self.state(option, side);
+        if enable && st.q == Q::WantNo {
+            self.warn(Warning::NoncompliantAnswer { option, side });
+        }
         let (q, send, changed) = match (enable, st.q, st.opposite) {
             (true, Q::No, _) if self.policy.accepts(option, side) => {
                 (Q::Yes, Some(true), Some(true))
@@ -444,6 +533,60 @@ impl Core {
         }
     }
 
+    /// Handles the byte after IAC outside a subnegotiation.
+    fn command(&mut self, b: u8) -> Parse {
+        match b {
+            IAC => {
+                self.data.push(IAC);
+                Parse::Data
+            }
+            WILL..=DONT => Parse::Verb(b),
+            SB => Parse::Sb,
+            // Any other command: the command byte is dropped.
+            _ => Parse::Data,
+        }
+    }
+
+    fn subnegotiation_byte(&mut self, b: u8) {
+        if self.subnegotiation.len() < SUBNEGOTIATION_LIMIT {
+            self.subnegotiation.push(b);
+        } else {
+            self.truncated = true;
+        }
+    }
+
+    /// Handles a complete subnegotiation for `option`. Only TTYPE SEND is
+    /// answered; every other subnegotiation is discarded.
+    fn subnegotiated(&mut self, option: TelnetOption) {
+        if self.truncated {
+            self.warn(Warning::SubnegotiationTruncated { option });
+        }
+        if option == TelnetOption::TTYPE
+            && self.subnegotiation == [TTYPE_SEND]
+            && self.is_enabled(option, Side::Local)
+        {
+            self.answer_ttype();
+        }
+    }
+
+    /// Sends TTYPE IS with the next name in RFC 1091's cycle: each name in
+    /// turn, the last one again, then from the top.
+    fn answer_ttype(&mut self) {
+        let types = self.policy.terminal_types();
+        let name = if types.is_empty() {
+            "UNKNOWN".to_owned()
+        } else {
+            let at = self.ttype_answers % (types.len() + 1);
+            types[at.min(types.len() - 1)].clone()
+        };
+        self.ttype_answers += 1;
+        self.transmit
+            .extend([IAC, SB, TelnetOption::TTYPE.0, TTYPE_IS]);
+        self.transmit.extend(name.as_bytes());
+        self.transmit.extend([IAC, SE]);
+        self.ttype_sent = Some(name);
+    }
+
     fn state(&mut self, option: TelnetOption, side: Side) -> &mut OptionState {
         &mut self.options.0[side.index()][usize::from(option.0)]
     }
@@ -467,6 +610,12 @@ impl Core {
             side,
             enabled,
         });
+    }
+
+    /// Queues a Warning Event after any data received before it.
+    fn warn(&mut self, warning: Warning) {
+        self.flush_data();
+        self.events.push_back(Event::Warning(warning));
     }
 
     fn flush_data(&mut self) {

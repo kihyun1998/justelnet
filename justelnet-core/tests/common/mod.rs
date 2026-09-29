@@ -9,6 +9,8 @@
 //! - `accept: <side> <option>`, `request: <side> <option>`,
 //!   `refuse: <side> <option>` change the Option policy for this option
 //!
+//! - `terminal-types: <name> <name> …` the Option policy's TTYPE list
+//!
 //! Policy lines apply in order, and only before the first step.
 //!
 //! - `server: <hex bytes>` bytes the peer sends; starts a new step
@@ -18,6 +20,13 @@
 //! - `event: data "<text>"` an Event the Core must emit during the current step;
 //!   the text accepts `\r`, `\n`, `\\`, `\"` and `\xNN` escapes
 //! - `event: option <side> <option> on|off` an OptionChanged Event
+//! - `event: warning malformed <option> <hex byte>`,
+//!   `event: warning truncated <option>` and
+//!   `event: warning noncompliant <side> <option>` Warning Events
+//! - `terminal-type-sent: <name>|none` what the Core must report as the
+//!   terminal type it last sent, at the end of the current step
+//!
+//! In hex bytes, `xx*N` stands for the byte `xx` repeated N times.
 //!
 //! A side is `local` or `remote`. An option is a name (`BINARY`, `ECHO`, `SGA`,
 //! `TM`, `TTYPE`, `NAWS`, `NEW-ENVIRON`, …) or a two-digit hex code.
@@ -27,7 +36,7 @@
 
 #![allow(dead_code)]
 
-use justelnet_core::{Core, Event, OptionPolicy, Side, Start, TelnetOption};
+use justelnet_core::{Core, Event, OptionPolicy, Side, Start, TelnetOption, Warning};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -45,6 +54,7 @@ pub struct Step {
     pub server: Vec<u8>,
     pub client: Vec<u8>,
     pub events: Vec<Event>,
+    pub terminal_type_sent: Option<Option<String>>,
 }
 
 #[derive(Debug, Clone)]
@@ -114,6 +124,18 @@ pub fn parse(name: &str, text: &str) -> Transcript {
             .unwrap_or_else(|| panic!("{}: expected `kind: value`", at()));
         let rest = rest.trim();
         match kind.trim() {
+            "terminal-types" => {
+                assert!(
+                    steps.len() == 1,
+                    "{}: `terminal-types:` after the first step",
+                    at()
+                );
+                policy = policy.terminal_types(rest.split_whitespace());
+            }
+            "terminal-type-sent" => {
+                steps.last_mut().unwrap().terminal_type_sent =
+                    Some((rest != "none").then(|| rest.to_owned()));
+            }
             kind @ ("policy" | "accept" | "request" | "refuse") => {
                 assert!(steps.len() == 1, "{}: `{kind}:` after the first step", at());
                 policy = match (kind, rest) {
@@ -173,9 +195,16 @@ pub fn parse(name: &str, text: &str) -> Transcript {
 }
 
 fn hex(s: &str, at: &str) -> Vec<u8> {
-    s.split_whitespace()
-        .map(|b| u8::from_str_radix(b, 16).unwrap_or_else(|_| panic!("{at}: bad hex byte `{b}`")))
-        .collect()
+    let mut out = Vec::new();
+    for word in s.split_whitespace() {
+        let (b, n) = word.split_once('*').unwrap_or((word, "1"));
+        let b = u8::from_str_radix(b, 16).unwrap_or_else(|_| panic!("{at}: bad hex byte `{b}`"));
+        let n: usize = n
+            .parse()
+            .unwrap_or_else(|_| panic!("{at}: bad repeat `{word}`"));
+        out.extend(std::iter::repeat_n(b, n));
+    }
+    out
 }
 
 fn side_option(s: &str, at: &str) -> (Side, TelnetOption) {
@@ -232,6 +261,26 @@ fn event(s: &str, at: &str) -> Event {
                 option,
                 side,
                 enabled,
+            }
+        }
+        "warning" => {
+            let words: Vec<&str> = arg.split_whitespace().collect();
+            match words.as_slice() {
+                ["malformed", option, byte] => Event::Warning(Warning::MalformedSubnegotiation {
+                    option: option_named(option, at),
+                    byte: u8::from_str_radix(byte, 16)
+                        .unwrap_or_else(|_| panic!("{at}: bad hex byte `{byte}`")),
+                }),
+                ["truncated", option] => Event::Warning(Warning::SubnegotiationTruncated {
+                    option: option_named(option, at),
+                }),
+                ["noncompliant", side, option] => {
+                    let (side, option) = side_option(&format!("{side} {option}"), at);
+                    Event::Warning(Warning::NoncompliantAnswer { option, side })
+                }
+                _ => panic!(
+                    "{at}: expected `warning malformed <option> <byte>` or `warning truncated <option>`"
+                ),
             }
         }
         other => panic!("{at}: unknown event `{other}`"),
@@ -306,6 +355,13 @@ pub fn run_step<'a>(
         replay.core.poll_transmit(&mut client);
     }
     replay.check_query();
+    if let Some(name) = &step.terminal_type_sent {
+        assert_eq!(
+            replay.core.terminal_type_sent(),
+            name.as_deref(),
+            "the terminal type the Core reports having sent"
+        );
+    }
     Outcome {
         client,
         events: coalesce(events),

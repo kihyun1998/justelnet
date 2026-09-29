@@ -1,7 +1,8 @@
 # Answers a compliant peer never sends, handled by RFC 1143's error rows:
-# no further bytes are sent, since a noncompliant peer is not trusted.
+# a Warning, and no further bytes, since a noncompliant peer is not trusted.
 policy: empty
 accept: remote ECHO
+accept: local SGA
 
 server: ff fb 01
 client: ff fd 01
@@ -13,6 +14,7 @@ client: ff fe 01
 event: option remote ECHO off
 
 server: ff fb 01
+event: warning noncompliant remote ECHO
 
 # The same with an enable queued: the WILL is taken as agreement to it.
 server: ff fb 01
@@ -26,4 +28,17 @@ event: option remote ECHO off
 call: enable remote ECHO
 
 server: ff fb 01
+event: warning noncompliant remote ECHO
 event: option remote ECHO on
+
+# WONT answered by DO, on our side.
+server: ff fd 03
+client: ff fb 03
+event: option local SGA on
+
+call: disable local SGA
+client: ff fc 03
+event: option local SGA off
+
+server: ff fd 03
+event: warning noncompliant local SGA

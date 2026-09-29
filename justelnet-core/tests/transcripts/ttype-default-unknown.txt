@@ -1,0 +1,12 @@
+# The default terminal-type list is UNKNOWN alone (RFC 1091's name for a type
+# not known), so every SEND gets the same answer.
+client: ff fb 1f ff fb 18 ff fb 27 ff fd 01 ff fb 03 ff fd 03
+
+server: ff fd 18 ff fa 18 01 ff f0
+client: ff fa 18 00 55 4e 4b 4e 4f 57 4e ff f0
+event: option local TTYPE on
+terminal-type-sent: UNKNOWN
+
+server: ff fa 18 01 ff f0 ff fa 18 01 ff f0
+client: ff fa 18 00 55 4e 4b 4e 4f 57 4e ff f0 ff fa 18 00 55 4e 4b 4e 4f 57 4e ff f0
+terminal-type-sent: UNKNOWN

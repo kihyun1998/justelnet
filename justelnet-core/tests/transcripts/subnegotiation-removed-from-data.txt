@@ -1,0 +1,10 @@
+# A subnegotiation's body never reaches Data, IAC IAC inside it included.
+policy: empty
+
+server: 61 ff fa 2c 01 02 ff ff 03 ff f0 62
+event: data "ab"
+
+# TTYPE SEND while TTYPE is off gets no answer (RFC 855: subnegotiation
+# follows agreement).
+server: ff fa 18 01 ff f0
+terminal-type-sent: none

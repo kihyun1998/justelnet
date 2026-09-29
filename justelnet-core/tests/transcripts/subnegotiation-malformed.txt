@@ -1,0 +1,29 @@
+# IAC followed by neither SE nor IAC inside a subnegotiation: a Warning, and
+# recovery by the byte's kind.
+client: ff fb 1f ff fb 18 ff fb 27 ff fd 01 ff fb 03 ff fd 03
+
+server: ff fd 18
+event: option local TTYPE on
+
+# A command byte: the subnegotiation ends there (a missing SE) and the command
+# is processed. The TTYPE SEND before it is answered; WILL ECHO agrees.
+server: ff fa 18 01 ff fb 01
+client: ff fa 18 00 55 4e 4b 4e 4f 57 4e ff f0
+event: warning malformed TTYPE fb
+event: option remote ECHO on
+
+# Any other byte: an undoubled 255, kept with the byte. The body is then
+# 255 01, not SEND, so nothing is answered.
+server: ff fa 18 ff 01 ff f0 7a
+event: warning malformed TTYPE 01
+event: data "z"
+
+# A data byte does not end the subnegotiation early: the body is SEND 255 41,
+# not a bare SEND, so nothing is answered.
+server: ff fa 18 01 ff 41 ff f0
+event: warning malformed TTYPE 41
+
+# IAC SB inside a subnegotiation ends it and starts the next one.
+server: ff fa 2c 05 ff fa 18 01 ff f0
+client: ff fa 18 00 55 4e 4b 4e 4f 57 4e ff f0
+event: warning malformed COM-PORT fa
