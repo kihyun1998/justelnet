@@ -73,6 +73,11 @@ impl From<core::Error> for Error {
 }
 
 /// A Telnet client over one stream.
+///
+/// Every method takes `&mut self`; to send while waiting in a `select!`, let
+/// [`Client::next_event`] be cancelled, which loses nothing. A send method
+/// cancelled part-way has already handed its bytes to the Core, and the rest
+/// of them are written by the next call.
 #[derive(Debug)]
 pub struct Client<S> {
     core: Core,
@@ -116,6 +121,14 @@ where
     /// A clean close by the peer is [`Event::Closed`]; a failed read or write
     /// is [`Error::Io`]. Either ends the connection, and every later call
     /// returns [`Error::Closed`].
+    ///
+    /// # Cancel safety
+    ///
+    /// This method is cancel-safe: the future can be dropped at any await
+    /// point, for example by another branch of a `tokio::select!` winning,
+    /// without losing a received byte, an Event or a byte queued for the peer.
+    /// Bytes are fed to the Core as soon as they are read, and output written
+    /// only in part is resumed, and flushed, by the next call.
     pub async fn next_event(&mut self) -> Result<Event, Error> {
         if self.closed {
             return Err(Error::Closed);

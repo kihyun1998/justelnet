@@ -26,6 +26,14 @@ The stream must be `Unpin`, as tokio's `AsyncReadExt::read` requires; a stream t
 
 The Core is re-exported as `justelnet::core`, so both Events and both Errors are told apart by path. A file that does `use justelnet::core;` shadows the standard `core` crate there and writes `::core::` for it. This is the maintainer's call, made on 2026-09-29 over `justelnet::proto` (quinn's name, no clash, but not CONTEXT.md's word) and a glob re-export at the root (whose `Event` would be ambiguous to a reader). It is theirs to reverse.
 
+## Cancelling `next_event`
+
+`next_event` is cancel-safe, and says so in its documentation: nothing it holds between awaits lives in the future. What it read is in the Core before the next await; what it took from the Core is in the client's buffer with its written count; a cut-short flush leaves `unflushed` set. So a `select!` that drops the call, at any point, loses no byte either way.
+
+The proof is a randomized test: the device plays the server bytes of the netkit Transcript through a 3-byte pipe, in random pieces at random moments, reading as slowly, and the client sits behind a 2-byte `BufWriter` so that a flush can be cut short as well as a write. Each call races a future that wins after a random number of polls (`biased`, so a seed replays the same way). 300 seeds cancel 1808 calls, and the Data, the other Events and every byte the device received match an uncancelled run.
+
+Each thing the proof leans on was broken once and the test went red (2026-09-29): output taken into a local before writing, an await between read and receive, and a write count reset on every call all fail from seed 1. Clearing the flush flag before the flush has finished fails only from seed 49: the flush window is narrow, and a seed count much below 300 would miss it.
+
 ## Sending
 
 Every send method (`send_data`, `send_raw`, `send_command`, `set_window_size`, `request_enable`, `request_disable`, `send_subnegotiation`) hands the call to the Core under the Core's own name, then writes everything queued, so bytes queued earlier (an answer, an active start) go out first and in order. A Core refusal (`Error::Core`) returns before writing: the call sends nothing, anything queued earlier waits for the next call, and the connection stays usable (#10: caller misuse). A failed write ends the connection like a failed read. After the end, the methods return `Error::Closed` without giving the Core anything. `is_enabled` reads the Core's state and works at any time.
