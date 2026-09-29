@@ -9,3 +9,8 @@ repository.workspace = true
 readme.workspace = true
 
 [dependencies]
+justelnet-core = { version = "0.0.0", path = "../justelnet-core" }
+tokio = { version = "1.53", default-features = false, features = ["io-util"] }
+
+[dev-dependencies]
+tokio = { version = "1.53", features = ["io-util", "macros", "rt", "time", "test-util"] }
