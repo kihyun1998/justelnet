@@ -7,7 +7,7 @@ accept: local BINARY
 call: enable local BINARY
 client: ff fb 00
 
-call: data ""
+call: data "\r"
 client: 0d 0a
 
 server: ff fd 00
