@@ -1,5 +1,6 @@
-# The default policy supports nothing: every DO is refused with WONT and every
+# An empty policy accepts nothing: every DO is refused with WONT and every
 # WILL with DONT (RFC 1123 3.2.1), and the negotiation bytes never reach Data.
+policy: empty
 server: 61 ff fd 18 62 ff fb 01 63
 client: ff fc 18 ff fe 01
 event: data "abc"

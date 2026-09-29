@@ -1,0 +1,12 @@
+# Changing the default policy changes what the active start asks for: a
+# refused option is dropped, a lowered one is only accepted, a new request
+# goes to the end.
+refuse: local NAWS
+accept: local SGA
+request: remote BINARY
+client: ff fb 18 ff fb 27 ff fd 01 ff fd 03 ff fd 00
+
+# SGA is still accepted on our side, without having been asked for.
+server: ff fd 03
+client: ff fb 03
+event: option local SGA on

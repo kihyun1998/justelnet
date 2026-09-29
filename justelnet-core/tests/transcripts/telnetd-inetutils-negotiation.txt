@@ -1,0 +1,33 @@
+# GNU inetutils telnetd against the default policy, from the target research
+# (#2, read from source): phase 1 asks for the terminal options, phase 2 for
+# the session options. Subnegotiations are left out until #17; NAWS is accepted
+# before its value is sent (#18).
+client: ff fb 1f ff fb 18 ff fb 27 ff fd 01 ff fb 03 ff fd 03
+
+# Phase 1: DO TTYPE, TSPEED, XDISPLOC, NEW-ENVIRON, OLD-ENVIRON. TTYPE and
+# NEW-ENVIRON agree with what the Core already offered; the rest are refused,
+# OLD-ENVIRON included, so both ENVIRONs are never on.
+server: ff fd 18 ff fd 20 ff fd 23 ff fd 27 ff fd 24
+client: ff fc 20 ff fc 23 ff fc 24
+event: option local TTYPE on
+event: option local NEW-ENVIRON on
+
+# Phase 2: WILL SGA, DO ECHO (the 4.2BSD probe), DO LINEMODE, DO NAWS,
+# WILL STATUS, DO LFLOW.
+server: ff fb 03 ff fd 01 ff fd 22 ff fd 1f ff fb 05 ff fd 21
+client: ff fc 01 ff fc 22 ff fe 05 ff fc 21
+event: option remote SGA on
+event: option local NAWS on
+
+# DO SGA answers the Core's WILL SGA (a netkit telnetd on RHEL 9 sent it,
+# probed 2026-09-29). WILL ECHO agrees with the Core's DO ECHO; DO TM is
+# refused, keeping the Core out of kludge linemode.
+server: ff fd 03 ff fb 01 ff fd 06
+client: ff fc 06
+event: option local SGA on
+event: option remote ECHO on
+
+# telnetd sends DONT ECHO after its probe only when the client said WILL ECHO
+# or stayed silent; the Core said WONT. Should one arrive anyway, it asks for a
+# state already in effect and gets no answer.
+server: ff fe 01

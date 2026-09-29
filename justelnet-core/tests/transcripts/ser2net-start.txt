@@ -1,0 +1,15 @@
+# ser2net/gensio opens with WILL SGA, DO SGA, WILL ECHO, DONT ECHO, DO BINARY,
+# WILL BINARY (target research #2, read from source), and refuses the options
+# it does not know. The session ends with BINARY on both ways.
+client: ff fb 1f ff fb 18 ff fb 27 ff fd 01 ff fb 03 ff fd 03
+
+server: ff fb 03 ff fd 03 ff fb 01 ff fe 01 ff fd 00 ff fb 00
+client: ff fb 00 ff fd 00
+event: option remote SGA on
+event: option local SGA on
+event: option remote ECHO on
+event: option local BINARY on
+event: option remote BINARY on
+
+# gensio's refusals of NAWS, TTYPE and NEW-ENVIRON leave them off, unanswered.
+server: ff fe 1f ff fe 18 ff fe 27

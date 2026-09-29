@@ -1,6 +1,7 @@
 # gensio acknowledges a WONT for an option already off. A DONT or WONT for an
 # option that is off is never answered (RFC 854 rule b), so no loop starts.
-support: remote ECHO
+policy: empty
+accept: remote ECHO
 
 server: ff fe 01 ff fc 01 ff fe 18 ff fc 18
 

@@ -16,6 +16,10 @@ A Transcript is a sequence of steps, each opened by a `server:` line. Lines befo
 
 ## The option-state query is checked on every step
 
-After every call and every chunk, the runner compares `is_enabled` for all 256 options on both sides with what the OptionChanged Events so far say. The acceptance criterion "the option-state query agrees with OptionChanged" is then asserted by every Transcript, including in states no Event marks, such as a request waiting for its answer (`WANTYES`).
+After every call and at the end of every step, the runner compares `is_enabled` for all 256 options on both sides with what the OptionChanged Events so far say. The acceptance criterion "the option-state query agrees with OptionChanged" is then asserted by every Transcript, including in states no Event marks, such as a request waiting for its answer (`WANTYES`), which is visible right after the call that made it.
 
-The cost is measured: the chunking property went from 0.2 s to 4.75 s (debug build, Windows, seven Transcripts).
+It is not checked after every chunk: that cost grew with each Transcript (the chunking property took 9.9 s with fourteen Transcripts, 2.2 s with the check per step; debug build, Windows), and the states it would add are the ones between two bytes of one step, which no mutation tried so far needed to reach.
+
+## Transcripts start from the default Option policy
+
+A Transcript without policy lines runs against `OptionPolicy::default()`, active start included, so its first step expects the start's bytes. `policy: empty` gives the blank slate the option-engine Transcripts are written against: nothing accepted, a passive start, so only what the Transcript lists happens.

@@ -1,0 +1,7 @@
+# The default policy starts active: before any input the Core asks for
+# NAWS, TTYPE and NEW-ENVIRON on its side, ECHO from the peer, and SGA both ways.
+client: ff fb 1f ff fb 18 ff fb 27 ff fd 01 ff fb 03 ff fd 03
+
+# Nothing is asked twice.
+server: 68 69
+event: data "hi"

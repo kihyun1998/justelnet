@@ -1,0 +1,27 @@
+# A passive start sends nothing until the peer's negotiation first changes an
+# option's state; then it asks for every requested option still off, after
+# answering the peer.
+policy: passive
+
+server: 68 69
+event: data "hi"
+
+# Refusing an unsupported option, or ignoring a DONT for one already off,
+# changes no state, so nothing more is sent.
+server: ff fd 22 ff fe 01
+client: ff fc 22
+
+# The peer asks for TTYPE: accepted, then the rest of the requests follow.
+server: ff fd 18
+client: ff fb 18
+event: option local TTYPE on
+client: ff fb 1f ff fb 27 ff fd 01 ff fb 03 ff fd 03
+
+# Only once.
+server: ff fb 03
+event: option remote SGA on
+
+# A request the peer refuses stays refused: later changes do not ask again.
+server: ff fe 1f ff fe 27
+server: ff fb 01
+event: option remote ECHO on

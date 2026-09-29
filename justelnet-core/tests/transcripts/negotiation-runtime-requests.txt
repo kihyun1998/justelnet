@@ -1,5 +1,6 @@
 # The caller asks for BINARY on the peer's side, which the policy does not
-# support: the request is sent anyway, once.
+# accept: the request is sent anyway, once.
+policy: empty
 call: enable remote BINARY
 client: ff fd 00
 

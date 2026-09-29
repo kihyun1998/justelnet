@@ -87,19 +87,61 @@ impl Side {
     }
 }
 
-/// The options the Core accepts when the peer asks for them.
+/// How the Core treats one option on one side.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+enum Stance {
+    #[default]
+    Refuse,
+    Accept,
+    /// Accepted, and asked for at the start of the connection.
+    Request,
+}
+
+/// How the Core opens a connection.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Start {
+    /// Ask for every requested option before any input.
+    #[default]
+    Active,
+    /// Send nothing until the peer's negotiation first changes an option's
+    /// state, then ask for every requested option still off.
+    Passive,
+}
+
+/// The options the Core accepts when the peer asks for them, the ones it asks
+/// for itself, and how it opens the connection.
 ///
-/// The default policy supports no option, so every request is refused.
+/// The default policy is a character-mode terminal client with an active start:
+///
+/// | Option | Local (WILL) | Remote (DO) |
+/// |---|---|---|
+/// | BINARY | accept | accept |
+/// | ECHO | refuse | request |
+/// | SGA | request | request |
+/// | TTYPE, NAWS, NEW-ENVIRON | request | refuse |
+///
+/// Every other option is refused on both sides, TM included.
 #[derive(Debug, Clone)]
 pub struct OptionPolicy {
-    supported: [[bool; 256]; 2],
+    stances: [[Stance; 256]; 2],
+    /// Requested options, in the order they are asked for.
+    requests: Vec<(TelnetOption, Side)>,
+    start: Start,
 }
 
 impl Default for OptionPolicy {
     fn default() -> Self {
-        Self {
-            supported: [[false; 256]; 2],
-        }
+        OptionPolicyBuilder::empty()
+            .request(TelnetOption::NAWS, Side::Local)
+            .request(TelnetOption::TTYPE, Side::Local)
+            .request(TelnetOption::NEW_ENVIRON, Side::Local)
+            .request(TelnetOption::ECHO, Side::Remote)
+            .request(TelnetOption::SGA, Side::Local)
+            .request(TelnetOption::SGA, Side::Remote)
+            .accept(TelnetOption::BINARY, Side::Local)
+            .accept(TelnetOption::BINARY, Side::Remote)
+            .build()
     }
 }
 
@@ -112,8 +154,22 @@ impl OptionPolicy {
     }
 
     /// Whether the Core accepts the peer's request to enable `option` on `side`.
-    pub fn supports(&self, option: TelnetOption, side: Side) -> bool {
-        self.supported[side.index()][usize::from(option.0)]
+    pub fn accepts(&self, option: TelnetOption, side: Side) -> bool {
+        self.stance(option, side) != Stance::Refuse
+    }
+
+    /// Whether the Core asks for `option` on `side` at the start.
+    pub fn requests(&self, option: TelnetOption, side: Side) -> bool {
+        self.stance(option, side) == Stance::Request
+    }
+
+    /// How the Core opens the connection.
+    pub fn start(&self) -> Start {
+        self.start
+    }
+
+    fn stance(&self, option: TelnetOption, side: Side) -> Stance {
+        self.stances[side.index()][usize::from(option.0)]
     }
 }
 
@@ -124,15 +180,61 @@ pub struct OptionPolicyBuilder {
 }
 
 impl OptionPolicyBuilder {
-    /// Accept the peer's request to enable `option` on `side`.
-    pub fn support(mut self, option: TelnetOption, side: Side) -> Self {
-        self.policy.supported[side.index()][usize::from(option.0)] = true;
+    fn empty() -> Self {
+        Self {
+            policy: OptionPolicy {
+                stances: [[Stance::Refuse; 256]; 2],
+                requests: Vec::new(),
+                start: Start::Active,
+            },
+        }
+    }
+
+    /// Refuse the peer's request to enable `option` on `side`, and never ask for it.
+    pub fn refuse(self, option: TelnetOption, side: Side) -> Self {
+        self.set(option, side, Stance::Refuse)
+    }
+
+    /// Accept the peer's request to enable `option` on `side`, without asking for it.
+    pub fn accept(self, option: TelnetOption, side: Side) -> Self {
+        self.set(option, side, Stance::Accept)
+    }
+
+    /// Accept `option` on `side`, and ask for it at the start. Requests are
+    /// sent in the order they were made here; an option refused or accepted
+    /// in between moves to the end when requested again.
+    pub fn request(self, option: TelnetOption, side: Side) -> Self {
+        self.set(option, side, Stance::Request)
+    }
+
+    /// Refuse every option on both sides.
+    pub fn refuse_all(mut self) -> Self {
+        self.policy.stances = [[Stance::Refuse; 256]; 2];
+        self.policy.requests.clear();
+        self
+    }
+
+    /// Open the connection this way.
+    pub fn start(mut self, start: Start) -> Self {
+        self.policy.start = start;
         self
     }
 
     /// The finished policy.
     pub fn build(self) -> OptionPolicy {
         self.policy
+    }
+
+    fn set(mut self, option: TelnetOption, side: Side, stance: Stance) -> Self {
+        self.policy.stances[side.index()][usize::from(option.0)] = stance;
+        let requests = &mut self.policy.requests;
+        let listed = requests.contains(&(option, side));
+        if stance == Stance::Request && !listed {
+            requests.push((option, side));
+        } else if stance != Stance::Request && listed {
+            requests.retain(|&r| r != (option, side));
+        }
+        self
     }
 }
 
@@ -182,10 +284,13 @@ impl Default for Options {
 }
 
 /// One connection's Telnet protocol state.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Core {
     policy: OptionPolicy,
     options: Options,
+    /// Whether the policy's requests have been sent; false only while a
+    /// passive start waits for the peer.
+    started: bool,
     parse: Parse,
     /// Received data not yet queued as a Data Event.
     data: Vec<u8>,
@@ -193,18 +298,33 @@ pub struct Core {
     transmit: Vec<u8>,
 }
 
+impl Default for Core {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Core {
     /// A Core for a new connection, with the default [`OptionPolicy`].
     pub fn new() -> Self {
-        Self::default()
+        Self::with_policy(OptionPolicy::default())
     }
 
     /// A Core for a new connection, answering the peer from `policy`.
     pub fn with_policy(policy: OptionPolicy) -> Self {
-        Self {
+        let mut core = Self {
             policy,
-            ..Self::default()
+            options: Options::default(),
+            started: false,
+            parse: Parse::default(),
+            data: Vec::new(),
+            events: VecDeque::new(),
+            transmit: Vec::new(),
+        };
+        if core.policy.start() == Start::Active {
+            core.start();
         }
+        core
     }
 
     /// Feeds bytes received from the peer. Never fails.
@@ -239,7 +359,7 @@ impl Core {
     }
 
     /// Asks the peer to enable `option` on `side`, whether or not the policy
-    /// supports it. Sends nothing if the option is on or already being asked for.
+    /// accepts it. Sends nothing if the option is on or already being asked for.
     pub fn request_enable(&mut self, option: TelnetOption, side: Side) {
         let st = *self.state(option, side);
         match (st.q, st.opposite) {
@@ -280,7 +400,7 @@ impl Core {
     fn received(&mut self, option: TelnetOption, side: Side, enable: bool) {
         let st = *self.state(option, side);
         let (q, send, changed) = match (enable, st.q, st.opposite) {
-            (true, Q::No, _) if self.policy.supports(option, side) => {
+            (true, Q::No, _) if self.policy.accepts(option, side) => {
                 (Q::Yes, Some(true), Some(true))
             }
             (true, Q::No, _) => (Q::No, Some(false), None),
@@ -301,6 +421,20 @@ impl Core {
         }
         if let Some(enabled) = changed {
             self.changed(option, side, enabled);
+            if !self.started {
+                self.start();
+            }
+        }
+    }
+
+    /// Asks for every option the policy requests that is still off and not
+    /// being negotiated, in the policy's order.
+    fn start(&mut self) {
+        self.started = true;
+        for (option, side) in self.policy.requests.clone() {
+            if self.state(option, side).q == Q::No {
+                self.request_enable(option, side);
+            }
         }
     }
 
