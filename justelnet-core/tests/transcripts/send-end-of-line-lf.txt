@@ -1,0 +1,6 @@
+# End of line LF.
+policy: empty
+end-of-line: lf
+
+call: data "ls\r"
+client: 6c 73 0a

@@ -1,0 +1,5 @@
+# send_raw sends the bytes as they are, only IAC doubled.
+policy: empty
+
+call: raw "a\r\xff\n"
+client: 61 0d ff ff 0a

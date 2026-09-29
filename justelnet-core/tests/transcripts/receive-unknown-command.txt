@@ -1,0 +1,14 @@
+# IAC followed by SE outside a subnegotiation, or by a byte below 240, is not
+# a command the Core knows: a Warning, and the byte is dropped.
+policy: empty
+
+server: 61 ff f0 62
+event: data "a"
+event: warning unknown-command f0
+event: data "b"
+
+# EOR (239) and anything lower.
+server: ff ef ff 41 63
+event: warning unknown-command ef
+event: warning unknown-command 41
+event: data "c"

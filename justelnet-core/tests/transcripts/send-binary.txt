@@ -1,0 +1,25 @@
+# While BINARY is on on our side, send_data translates nothing but still
+# doubles IAC.
+policy: empty
+accept: local BINARY
+
+# Asked for but not yet agreed: still translated (RFC 856).
+call: enable local BINARY
+client: ff fb 00
+
+call: data ""
+client: 0d 0a
+
+server: ff fd 00
+event: option local BINARY on
+
+call: data "a\rb\xff"
+client: 61 0d 62 ff ff
+
+# BINARY off again: CR is Enter again.
+server: ff fe 00
+client: ff fc 00
+event: option local BINARY off
+
+call: data "\r"
+client: 0d 0a

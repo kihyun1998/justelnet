@@ -11,6 +11,7 @@
 //!
 //! - `terminal-types: <name> <name> …` the Option policy's TTYPE list
 //! - `window-size: <width> <height>` the Option policy's NAWS window size
+//! - `end-of-line: crlf|crnul|lf` what the Option policy sends for a CR
 //! - `variable: "<name>" "<value>"`, `user-variable: "<name>" "<value>"` a
 //!   NEW-ENVIRON VAR or USERVAR in the Option policy; both quoted like data
 //!
@@ -18,13 +19,18 @@
 //!
 //! - `server: <hex bytes>` bytes the peer sends; starts a new step
 //! - `call: enable|disable <side> <option>` a runtime request from the caller,
-//!   or `call: window <width> <height>` a window-size change; starts a new step
+//!   `call: window <width> <height>` a window-size change,
+//!   `call: data "<text>"` and `call: raw "<text>"` sending data, or
+//!   `call: command <NOP|DM|BRK|IP|AO|AYT|EC|EL|GA>` sending a command;
+//!   starts a new step
 //! - `client: <hex bytes>` bytes the Core must send during the current step
 //! - `event: data "<text>"` an Event the Core must emit during the current step;
 //!   the text accepts `\r`, `\n`, `\\`, `\"` and `\xNN` escapes
 //! - `event: option <side> <option> on|off` an OptionChanged Event
+//! - `event: command <NOP|DM|BRK|IP|AO|AYT|EC|EL|GA>` a Command Event
 //! - `event: warning malformed <option> <hex byte>`,
-//!   `event: warning truncated <option>` and
+//!   `event: warning truncated <option>`,
+//!   `event: warning unknown-command <hex byte>` and
 //!   `event: warning noncompliant <side> <option>` Warning Events
 //! - `terminal-type-sent: <name>|none` what the Core must report as the
 //!   terminal type it last sent, at the end of the current step
@@ -39,16 +45,21 @@
 
 #![allow(dead_code)]
 
-use justelnet_core::{Core, Event, OptionPolicy, Side, Start, TelnetOption, Warning};
+use justelnet_core::{
+    Command, Core, EndOfLine, Event, OptionPolicy, Side, Start, TelnetOption, Warning,
+};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 /// A runtime request the caller makes at the start of a step.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum Call {
     Enable(Side, TelnetOption),
     Disable(Side, TelnetOption),
     WindowSize(u16, u16),
+    Data(Vec<u8>),
+    Raw(Vec<u8>),
+    Command(Command),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -127,6 +138,19 @@ pub fn parse(name: &str, text: &str) -> Transcript {
             .unwrap_or_else(|| panic!("{}: expected `kind: value`", at()));
         let rest = rest.trim();
         match kind.trim() {
+            "end-of-line" => {
+                assert!(
+                    steps.len() == 1,
+                    "{}: `end-of-line:` after the first step",
+                    at()
+                );
+                policy = policy.end_of_line(match rest {
+                    "crlf" => EndOfLine::CrLf,
+                    "crnul" => EndOfLine::CrNul,
+                    "lf" => EndOfLine::Lf,
+                    other => panic!("{}: unknown end of line `{other}`", at()),
+                });
+            }
             "window-size" => {
                 assert!(
                     steps.len() == 1,
@@ -201,6 +225,9 @@ pub fn parse(name: &str, text: &str) -> Transcript {
                         let (w, h) = window(target, &at());
                         Call::WindowSize(w, h)
                     }
+                    "data" => Call::Data(quoted(target.trim(), &at())),
+                    "raw" => Call::Raw(quoted(target.trim(), &at())),
+                    "command" => Call::Command(command_named(target.trim(), &at())),
                     other => panic!("{}: unknown call `{other}`", at()),
                 };
                 steps.push(Step {
@@ -238,6 +265,21 @@ fn hex(s: &str, at: &str) -> Vec<u8> {
         out.extend(std::iter::repeat_n(b, n));
     }
     out
+}
+
+fn command_named(s: &str, at: &str) -> Command {
+    match s {
+        "NOP" => Command::NoOperation,
+        "DM" => Command::DataMark,
+        "BRK" => Command::Break,
+        "IP" => Command::InterruptProcess,
+        "AO" => Command::AbortOutput,
+        "AYT" => Command::AreYouThere,
+        "EC" => Command::EraseCharacter,
+        "EL" => Command::EraseLine,
+        "GA" => Command::GoAhead,
+        other => panic!("{at}: unknown command `{other}`"),
+    }
 }
 
 fn window(s: &str, at: &str) -> (u16, u16) {
@@ -307,11 +349,16 @@ fn event(s: &str, at: &str) -> Event {
                 enabled,
             }
         }
+        "command" => Event::Command(command_named(arg.trim(), at)),
         "warning" => {
             let words: Vec<&str> = arg.split_whitespace().collect();
             match words.as_slice() {
                 ["malformed", option, byte] => Event::Warning(Warning::MalformedSubnegotiation {
                     option: option_named(option, at),
+                    byte: u8::from_str_radix(byte, 16)
+                        .unwrap_or_else(|_| panic!("{at}: bad hex byte `{byte}`")),
+                }),
+                ["unknown-command", byte] => Event::Warning(Warning::UnknownCommand {
                     byte: u8::from_str_radix(byte, 16)
                         .unwrap_or_else(|_| panic!("{at}: bad hex byte `{byte}`")),
                 }),
@@ -383,11 +430,14 @@ pub fn run_step<'a>(
     let mut client = Vec::new();
     let mut events = Vec::new();
     replay.core.poll_transmit(&mut client);
-    if let Some(call) = step.call {
+    if let Some(call) = &step.call {
         match call {
-            Call::Enable(side, option) => replay.core.request_enable(option, side),
-            Call::Disable(side, option) => replay.core.request_disable(option, side),
-            Call::WindowSize(w, h) => replay.core.set_window_size(w, h),
+            Call::Enable(side, option) => replay.core.request_enable(*option, *side),
+            Call::Disable(side, option) => replay.core.request_disable(*option, *side),
+            Call::WindowSize(w, h) => replay.core.set_window_size(*w, *h),
+            Call::Data(data) => replay.core.send_data(data),
+            Call::Raw(data) => replay.core.send_raw(data),
+            Call::Command(command) => replay.core.send_command(*command),
         }
         replay.drain(&mut events);
         replay.check_query();
