@@ -1,0 +1,21 @@
+# A subnegotiation longer than the Core keeps is truncated with one Warning at
+# its end; the rest of it is still removed from Data and the session goes on.
+policy: empty
+
+server: 61 ff fa 2c 41*5000 ff ff 42 ff f0 62
+event: data "a"
+event: warning truncated COM-PORT
+event: data "b"
+
+# The next subnegotiation starts empty.
+server: ff fa 2c 01 ff f0 63
+event: data "c"
+
+# Exactly at the limit, the last byte an escaped 255: kept whole, no Warning.
+server: ff fa 2c 41*4095 ff ff ff f0 64
+event: data "d"
+
+# One byte over: one Warning.
+server: ff fa 2c 41*4096 42 ff f0 65
+event: warning truncated COM-PORT
+event: data "e"

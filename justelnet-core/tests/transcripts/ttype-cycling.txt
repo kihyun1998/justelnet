@@ -1,0 +1,29 @@
+# TTYPE SEND is answered from the policy's list: each name in turn, the last
+# one repeated to mark the end, then back to the top (RFC 1091).
+terminal-types: XTERM VT100
+client: ff fb 1f ff fb 18 ff fb 27 ff fd 01 ff fb 03 ff fd 03
+
+server: ff fd 18
+event: option local TTYPE on
+
+server: ff fa 18 01 ff f0
+client: ff fa 18 00 58 54 45 52 4d ff f0
+terminal-type-sent: XTERM
+
+server: ff fa 18 01 ff f0
+client: ff fa 18 00 56 54 31 30 30 ff f0
+terminal-type-sent: VT100
+
+# The repeat marks the end of the list.
+server: ff fa 18 01 ff f0
+client: ff fa 18 00 56 54 31 30 30 ff f0
+terminal-type-sent: VT100
+
+# Another request goes back to the top.
+server: ff fa 18 01 ff f0
+client: ff fa 18 00 58 54 45 52 4d ff f0
+terminal-type-sent: XTERM
+
+server: ff fa 18 01 ff f0
+client: ff fa 18 00 56 54 31 30 30 ff f0
+terminal-type-sent: VT100

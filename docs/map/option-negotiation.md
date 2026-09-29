@@ -29,11 +29,11 @@ A character-mode terminal client: ECHO refused on our side and requested from th
 - Every `DO TM` gets `WONT TM`, since TM stays in `NO`; this keeps BSD and inetutils telnetd out of kludge linemode. A runtime request that turns TM on on our side ends that (see the comment on #16).
 - OLD-ENVIRON is refused, so the two ENVIRONs are never both on, which hangs inetutils and BSD telnetd.
 
-## Until TTYPE and NEW-ENVIRON are answered, a default Core stalls telnetd
+## Until NEW-ENVIRON is answered, a default Core stalls telnetd
 
-The default policy offers TTYPE and NEW-ENVIRON, and a Unix telnetd then sends `SB TTYPE SEND` and `SB NEW-ENVIRON SEND` and blocks until each gets an `IS`. The Core answers neither until #17 and #18, so a Core on the default policy stops before the login prompt. A probe against a netkit telnetd on RHEL 9 (2026-09-29) reached the login prompt only because the probe itself answered both SENDs.
+The default policy offers NEW-ENVIRON, and a Unix telnetd then sends `SB NEW-ENVIRON SEND` and blocks until it gets an `IS`. The Core answers it only from #18, so a Core on the default policy stops before the login prompt. Probed against a netkit telnetd on RHEL 9 on 2026-09-29: with TTYPE answered (#17), the default Core stalls after `TTYPE IS`; with NEW-ENVIRON refused in the policy, the Core alone reaches `login:`.
 
-The maintainer accepted this state between tickets on 2026-09-29, over the alternative of leaving TTYPE and NEW-ENVIRON out of the default until #17/#18: nothing is released before 0.1, and #17 comes next. It is theirs to reverse.
+The maintainer accepted this state between tickets on 2026-09-29 (then for TTYPE and NEW-ENVIRON both), over the alternative of leaving them out of the default until their tickets land: nothing is released before 0.1. It is theirs to reverse.
 
 ## The policy decides only what the peer may ask for
 
@@ -41,9 +41,9 @@ The maintainer accepted this state between tickets on 2026-09-29, over the alter
 
 This is the maintainer's call, made on 2026-09-29 when shown the alternative of ignoring runtime requests for options outside the policy (and turning them into an Error once #20 adds one). It matches the spec's BINARY row: "never requested by default; runtime request allowed". It is theirs to reverse.
 
-## Noncompliant answers are absorbed silently
+## Noncompliant answers are absorbed with a Warning
 
-RFC 1143 marks two rows as errors: the peer answering our DONT/WONT with WILL/DO. The Core applies the state the RFC gives (off; or on, when an enable was queued) and sends nothing further. There is no Warning Event yet, because Warning arrives with subnegotiation (#17). Whether these rows should then emit one is open.
+RFC 1143 marks two rows as errors: the peer answering our DONT/WONT with WILL/DO. The Core applies the state the RFC gives (off; or on, when an enable was queued), sends nothing further, and emits a `NoncompliantAnswer` Warning before any OptionChanged the row causes, as libtelnet reports `EPROTOCOL` there. The maintainer chose to emit it on 2026-09-29, once the Warning Event existed (#17), over leaving the rows silent; it is theirs to reverse.
 
 ## Redundant requests send nothing
 
