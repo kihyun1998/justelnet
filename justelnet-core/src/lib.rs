@@ -4,6 +4,12 @@
 //! received bytes with [`Core::receive`], then takes [`Event`]s out with
 //! [`Core::poll_event`] and the bytes to send with [`Core::poll_transmit`].
 //! The Core performs no I/O and has no notion of time.
+#![doc(
+    html_logo_url = "https://raw.githubusercontent.com/kihyun1998/justelnet/main/logo/icons/justelnet-icon-light-128.png"
+)]
+#![doc(
+    html_favicon_url = "https://raw.githubusercontent.com/kihyun1998/justelnet/main/logo/favicon/favicon-32.png"
+)]
 
 use std::collections::VecDeque;
 
