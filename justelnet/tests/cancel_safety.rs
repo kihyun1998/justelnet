@@ -8,12 +8,19 @@ use justelnet::core::{self, OptionPolicy};
 use justelnet::{Client, Event};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufWriter, duplex};
 
-/// The server's side of a netkit telnetd login on RHEL 9, from the Core's
-/// Transcript, then data with an escaped IAC.
+/// The `server:` lines of the Core's Transcript `telnetd-netkit-rhel9.txt`.
+const NETKIT_SERVER: &str = "\
+server: ff fd 18 ff fd 20 ff fd 23 ff fd 27
+server: ff fd 1f ff fb 01 ff fd 03 ff fb 03
+server: ff fa 27 01 ff f0 ff fa 18 01 ff f0
+server: ff fd 01 ff fb 05 ff fd 21
+server: 6c 6f 63 61 6c 68 6f 73 74 20 6c 6f 67 69 6e 3a 20
+";
+
+/// The server's side of a netkit telnetd login on RHEL 9, then data with an
+/// escaped IAC.
 fn server_chunks() -> Vec<Vec<u8>> {
-    let transcript =
-        include_str!("../../justelnet-core/tests/transcripts/telnetd-netkit-rhel9.txt");
-    let mut chunks: Vec<Vec<u8>> = transcript
+    let mut chunks: Vec<Vec<u8>> = NETKIT_SERVER
         .lines()
         .filter_map(|line| line.strip_prefix("server: "))
         .map(|hex| {
