@@ -4,14 +4,15 @@ How the Expect session (`justelnet-expect`) turns a client's Data into waits for
 
 ## The prototype is the oracle
 
-The matching rules are the ones walked through in the prototype that settled #8 (`prototypes/expect-api.PROTOTYPE.html` on `prototype/expect-api`, commit `905e3e5`). Its `Expect` module has no DOM, so the tests' expected matches and buffers come from running that module itself under node on the same scenario steps, not from a Rust copy of it that could share the implementation's mistakes. To redo it: take the text from `const Expect = (() => {` to the matching `})();`, evaluate it, and dispatch the scenario's actions (`serverData`, `expect`, `tick`) as the page's `scenarios` list does. Done on 2026-09-29 for scenarios 1, 2 and 5, and on 2026-10-07 for scenario 6.
+The matching rules are the ones walked through in the prototype that settled #8 (`prototypes/expect-api.PROTOTYPE.html` on `prototype/expect-api`, commit `905e3e5`). Its `Expect` module has no DOM, so the tests' expected matches and buffers come from running that module itself under node on the same scenario steps, not from a Rust copy of it that could share the implementation's mistakes. To redo it: take the text from `const Expect = (() => {` to the matching `})();`, evaluate it, and dispatch the scenario's actions (`serverData`, `expect`, `tick`) as the page's `scenarios` list does. Done on 2026-09-29 for scenarios 1, 2 and 5, and on 2026-10-07 for scenarios 1 (its last step, `expect_any([">", "#"])`), 3, 4 and 6 and for the earliest-match and tie cases. In scenario 4 the second page's `before` starts with a space: the one after `--More--`, left in the buffer by the first match.
 
-Scenario 1 ends with `expect_any([">", "#"])`, which comes with #31; the #30 test waits for `>` alone, which the module gives the same result for.
+The scenario 4 test's `--More--` loop stops itself after as many waits as there are pages. Without that bound, a wait that never reports the prompt (an `index` stuck at 0 did, 2026-10-07) keeps the loop sending spaces forever, and the test hangs rather than fails.
 
 ## What a wait does
 
 - The buffer is searched before any read, so data left by the last match is matched at once (scenario 3's `Username:` after `% Login invalid`).
 - Each pattern's first match counts; the earliest start wins, ties going to the pattern listed first. The data ahead of it is `before`, the rest stays buffered.
+- `expect_any` takes `&[P]` for any `P: Into<Pattern> + Clone`, the shape #8 settled (`expect_any(&[patterns], timeout)`), so `&[">", "#"]` works as written and a list mixing literals and regexes is a `&[Pattern]`. An empty list matches nothing, so the wait ends at the timeout or a close, which is what the matching rule gives with no candidates.
 - An empty literal matches at the start with nothing before it and takes nothing, as the prototype's `new RegExp("")` does.
 - The timeout counts from the start of the wait, not from the last data, so a device trickling output without the prompt still times out. The error carries a copy of the buffer and the session keeps its own.
 - Data is appended; a clean close fails the wait with `Closed { buffer }`; every other Event is skipped, since the Core already handled it.
