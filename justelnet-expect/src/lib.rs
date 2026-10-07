@@ -3,6 +3,42 @@
 //! An [`Expect`] session owns a [`Client`] and the data it has received but no
 //! wait has consumed yet. [`Expect::expect`] waits for a pattern in that data,
 //! and [`Expect::into_inner`] hands the client back.
+//!
+//! A pattern is a literal or a byte [`Regex`](regex::bytes::Regex), matched
+//! against the received bytes in whatever encoding they arrive. Wait for a
+//! prompt with a regex anchored to the end of the data, so that a `#` or `>`
+//! inside a banner does not match first:
+//!
+//! ```no_run
+//! use std::time::Duration;
+//!
+//! use justelnet::Client;
+//! use justelnet::core::OptionPolicy;
+//! use justelnet_expect::Expect;
+//! use justelnet_expect::regex::bytes::Regex;
+//!
+//! # async fn login() -> Result<(), Box<dyn std::error::Error>> {
+//! let secs = Duration::from_secs;
+//! let client = Client::connect("192.0.2.1:23", OptionPolicy::default(), secs(5)).await?;
+//! let mut s = Expect::new(client);
+//! let prompt = Regex::new(r"\n\S+[#>] ?$")?;
+//!
+//! s.expect("Username: ", secs(10)).await?;
+//! s.send_line("admin").await?;
+//! s.expect("Password: ", secs(10)).await?;
+//! s.send_line("secret").await?;
+//! s.expect(&prompt, secs(10)).await?;
+//!
+//! s.send_line("show version").await?;
+//! let output = s.expect(&prompt, secs(10)).await?;
+//! println!("{}", output.before_lossy());
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! `\S` matches only UTF-8 text. Where the prompt itself is in another
+//! encoding, such as a hostname in EUC-KR, use `(?-u:\S)`, which matches any
+//! byte that is not ASCII whitespace.
 #![doc(
     html_logo_url = "https://raw.githubusercontent.com/kihyun1998/justelnet/main/logo/icons/justelnet-icon-light-128.png"
 )]
@@ -10,20 +46,27 @@
     html_favicon_url = "https://raw.githubusercontent.com/kihyun1998/justelnet/main/logo/favicon/favicon-32.png"
 )]
 
+use std::borrow::Cow;
 use std::time::Duration;
 
 use justelnet::core::{self, Command};
 use justelnet::{Client, Event};
+use regex::bytes::Regex;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::time::Instant;
 
-/// What a wait looks for in the received data.
+/// The regex crate, re-exported for building byte regex patterns.
+pub use regex;
+
+/// What a wait looks for in the received data: a literal `&str` or a byte
+/// [`Regex`](regex::bytes::Regex).
 #[derive(Debug, Clone)]
 pub struct Pattern(Kind);
 
 #[derive(Debug, Clone)]
 enum Kind {
     Literal(Vec<u8>),
+    Regex(Regex),
 }
 
 impl Pattern {
@@ -35,6 +78,7 @@ impl Pattern {
                 .windows(literal.len())
                 .position(|window| window == literal.as_slice())
                 .map(|start| (start, start + literal.len())),
+            Kind::Regex(regex) => regex.find(haystack).map(|m| (m.start(), m.end())),
         }
     }
 }
@@ -43,6 +87,20 @@ impl Pattern {
 impl From<&str> for Pattern {
     fn from(literal: &str) -> Self {
         Pattern(Kind::Literal(literal.as_bytes().to_vec()))
+    }
+}
+
+/// A byte regex, matched against the received bytes as they are.
+impl From<Regex> for Pattern {
+    fn from(regex: Regex) -> Self {
+        Pattern(Kind::Regex(regex))
+    }
+}
+
+/// A byte regex, for waiting on the same regex more than once.
+impl From<&Regex> for Pattern {
+    fn from(regex: &Regex) -> Self {
+        Pattern(Kind::Regex(regex.clone()))
     }
 }
 
@@ -56,6 +114,18 @@ pub struct Match {
     pub before: Vec<u8>,
     /// The matched bytes.
     pub matched: Vec<u8>,
+}
+
+impl Match {
+    /// `before` as text, with each invalid UTF-8 sequence shown as U+FFFD.
+    pub fn before_lossy(&self) -> Cow<'_, str> {
+        String::from_utf8_lossy(&self.before)
+    }
+
+    /// `matched` as text, with each invalid UTF-8 sequence shown as U+FFFD.
+    pub fn matched_lossy(&self) -> Cow<'_, str> {
+        String::from_utf8_lossy(&self.matched)
+    }
 }
 
 /// Why a wait or a call failed.

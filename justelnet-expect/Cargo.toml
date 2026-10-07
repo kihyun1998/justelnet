@@ -10,6 +10,7 @@ readme.workspace = true
 
 [dependencies]
 justelnet = { version = "0.0.0", path = "../justelnet" }
+regex = "1.13"
 tokio = { version = "1.53", default-features = false, features = ["time"] }
 
 [dev-dependencies]

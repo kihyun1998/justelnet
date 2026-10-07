@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use justelnet::core::{self, OptionPolicy, Side, TelnetOption};
 use justelnet::{Client, Event};
+use justelnet_expect::regex::bytes::Regex;
 use justelnet_expect::{Error, Expect, Match};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream, duplex};
 
@@ -111,6 +112,120 @@ async fn a_timeout_carries_the_confirm_buffer() {
     }
     let m = s.expect("[confirm]", SECS_5).await.unwrap();
     assert_match(&m, 0, b"reload\r\nProceed with reload? ", b"[confirm]");
+}
+
+const BANNER: &[u8] = b"\r\n*** Authorized access only. Ticket #4521 ***\r\nR1#";
+
+/// Scenario 6, first half: a literal `#` matches inside the banner.
+#[tokio::test(start_paused = true)]
+async fn a_literal_hash_matches_inside_the_banner() {
+    let (mut s, mut device) = session();
+    device.write_all(BANNER).await.unwrap();
+
+    let m = s.expect("#", SECS_5).await.unwrap();
+
+    assert_match(&m, 0, b"\r\n*** Authorized access only. Ticket ", b"#");
+    assert_eq!(s.into_inner().1, b"4521 ***\r\nR1#");
+}
+
+/// Scenario 6, second half: an anchored regex matches only the real prompt.
+#[tokio::test(start_paused = true)]
+async fn an_anchored_regex_matches_only_the_real_prompt() {
+    let (mut s, mut device) = session();
+    device.write_all(BANNER).await.unwrap();
+
+    let m = s.expect(prompt(), SECS_5).await.unwrap();
+
+    assert_match(
+        &m,
+        0,
+        b"\r\n*** Authorized access only. Ticket #4521 ***\r",
+        b"\nR1#",
+    );
+    assert_eq!(s.into_inner().1, b"");
+}
+
+/// A prompt whose hostname is EUC-KR ("라우터") needs `(?-u:\S)`.
+#[tokio::test(start_paused = true)]
+async fn a_non_utf8_prompt_needs_a_byte_class() {
+    let (mut s, mut device) = session();
+    device
+        .write_all(b"\r\n\xb6\xf3\xbf\xec\xc5\xcd#")
+        .await
+        .unwrap();
+
+    let unicode = Regex::new(r"\n\S+[#>] ?$").unwrap();
+    assert!(matches!(
+        s.expect(&unicode, Duration::ZERO).await,
+        Err(Error::Timeout { .. })
+    ));
+    let bytes = Regex::new(r"\n(?-u:\S)+[#>] ?$").unwrap();
+    let m = s.expect(&bytes, SECS_5).await.unwrap();
+
+    assert_match(&m, 0, b"\r", b"\n\xb6\xf3\xbf\xec\xc5\xcd#");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_borrowed_regex_is_a_pattern() {
+    let (mut s, mut device) = session();
+    let prompt = prompt();
+    device.write_all(b"\r\nR1#show\r\nR1#").await.unwrap();
+
+    let m = s.expect(&prompt, SECS_5).await.unwrap();
+
+    assert_match(&m, 0, b"\r\nR1#show\r", b"\nR1#");
+}
+
+/// The prompt regex of scenario 6.
+fn prompt() -> Regex {
+    Regex::new(r"\n\S+[#>] ?$").unwrap()
+}
+
+/// "허가된 사용자만 접속하십시오" in EUC-KR, which is not UTF-8.
+const EUC_KR_BANNER: &[u8] = b"\xc7\xe3\xb0\xa1\xb5\xc8 \xbb\xe7\xbf\xeb\xc0\xda\xb8\xb8 \xc1\xa2\xbc\xd3\xc7\xcf\xbd\xca\xbd\xc3\xbf\xc0";
+
+#[tokio::test(start_paused = true)]
+async fn an_ascii_prompt_matches_after_an_euc_kr_banner() {
+    let (mut s, mut device) = session();
+    let mut banner = b"\r\n".to_vec();
+    banner.extend_from_slice(EUC_KR_BANNER);
+    banner.extend_from_slice(b"\r\n");
+    device.write_all(&banner).await.unwrap();
+    device.write_all(b"Username: \r\n...\r\nR1>").await.unwrap();
+
+    let m = s.expect("Username: ", SECS_5).await.unwrap();
+    assert_match(&m, 0, &banner, b"Username: ");
+
+    let m = s.expect(prompt(), SECS_5).await.unwrap();
+    assert_match(&m, 0, b"\r\n...\r", b"\nR1>");
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_anchored_regex_matches_across_an_euc_kr_banner() {
+    let (mut s, mut device) = session();
+    let mut banner = b"\r\n".to_vec();
+    banner.extend_from_slice(EUC_KR_BANNER);
+    banner.extend_from_slice(b"\r");
+    device.write_all(&banner).await.unwrap();
+    device.write_all(b"\nR1>").await.unwrap();
+
+    let m = s.expect(prompt(), SECS_5).await.unwrap();
+
+    assert_match(&m, 0, &banner, b"\nR1>");
+}
+
+#[tokio::test(start_paused = true)]
+async fn lossy_views_show_before_and_matched_as_text() {
+    let (mut s, mut device) = session();
+    device.write_all(EUC_KR_BANNER).await.unwrap();
+    device.write_all(b"\r\nR1#").await.unwrap();
+
+    let m = s.expect(prompt(), SECS_5).await.unwrap();
+
+    let before = m.before_lossy();
+    assert!(before.contains('\u{FFFD}'), "{before:?}");
+    assert!(before.ends_with("\u{FFFD}\r"), "{before:?}");
+    assert_eq!(m.matched_lossy(), "\nR1#");
 }
 
 #[tokio::test(start_paused = true)]
