@@ -9,7 +9,7 @@ use std::time::Duration;
 use justelnet::core::{self, OptionPolicy, Side, TelnetOption};
 use justelnet::{Client, Event};
 use justelnet_expect::regex::bytes::Regex;
-use justelnet_expect::{Error, Expect, Match};
+use justelnet_expect::{Error, Expect, Match, Pattern};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream, duplex};
 
 const SECS_5: Duration = Duration::from_secs(5);
@@ -42,7 +42,7 @@ fn assert_match(m: &Match, index: usize, before: &[u8], matched: &[u8]) {
     assert_eq!(m.matched, matched, "matched");
 }
 
-/// Scenario 1, a normal login, with its last wait for `>` alone.
+/// Scenario 1, a normal login.
 #[tokio::test(start_paused = true)]
 async fn a_normal_login() {
     let (mut s, mut device) = session();
@@ -68,8 +68,122 @@ async fn a_normal_login() {
     s.send_line("********").await.unwrap();
     assert_eq!(received(&mut device).await, b"********\r\n");
     device.write_all(b"\r\nR1>").await.unwrap();
-    let m = s.expect(">", SECS_5).await.unwrap();
+    let m = s.expect_any(&[">", "#"], SECS_5).await.unwrap();
     assert_match(&m, 0, b"\r\nR1", b">");
+}
+
+/// Scenario 3: the failure message wins, and the `Username: ` after it is
+/// matched by the next wait without reading.
+#[tokio::test(start_paused = true)]
+async fn a_wrong_password_branches_and_keeps_the_next_prompt() {
+    let (mut s, mut device) = session();
+    device
+        .write_all(b"\r\n% Login invalid\r\n\r\nUsername: ")
+        .await
+        .unwrap();
+
+    let m = s
+        .expect_any(&["#", ">", "% Login invalid"], SECS_5)
+        .await
+        .unwrap();
+    assert_match(&m, 2, b"\r\n", b"% Login invalid");
+
+    let start = tokio::time::Instant::now();
+    let m = s.expect("Username: ", SECS_5).await.unwrap();
+    assert_match(&m, 0, b"\r\n\r\n", b"Username: ");
+    assert_eq!(start.elapsed(), Duration::ZERO);
+}
+
+/// Scenario 4: a `--More--` loop collects every page.
+#[tokio::test(start_paused = true)]
+async fn a_more_loop_collects_the_full_output() {
+    let (mut s, mut device) = session();
+    let pages: [&[u8]; 2] = [
+        b"show run\r\nhostname R1\r\ninterface Gi0/0\r\n ip address 10.0.0.1 255.255.255.0\r\n --More-- ",
+        b"\r\ninterface Gi0/1\r\n shutdown\r\nend\r\n\r\nR1#",
+    ];
+    device.write_all(pages[0]).await.unwrap();
+
+    let mut output = Vec::new();
+    let mut waits = Vec::new();
+    loop {
+        assert!(waits.len() < pages.len(), "the loop did not end: {waits:?}");
+        let m = s.expect_any(&["--More--", "R1#"], SECS_5).await.unwrap();
+        output.extend_from_slice(&m.before);
+        waits.push(m.index);
+        if m.index == 1 {
+            break;
+        }
+        s.send_raw(b" ").await.unwrap();
+        assert_eq!(received(&mut device).await, b" ");
+        device.write_all(pages[1]).await.unwrap();
+    }
+
+    assert_eq!(waits, [0, 1]);
+    assert_eq!(
+        output,
+        b"show run\r\nhostname R1\r\ninterface Gi0/0\r\n ip address 10.0.0.1 255.255.255.0\r\n  \r\ninterface Gi0/1\r\n shutdown\r\nend\r\n\r\n"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_earliest_match_wins_whatever_its_place_in_the_list() {
+    let (mut s, mut device) = session();
+    device.write_all(b"\r\nR1>show\r\nR1#").await.unwrap();
+
+    let m = s.expect_any(&["#", ">"], SECS_5).await.unwrap();
+
+    assert_match(&m, 1, b"\r\nR1", b">");
+    assert_eq!(s.into_inner().1, b"show\r\nR1#");
+}
+
+#[tokio::test(start_paused = true)]
+async fn at_the_same_position_the_pattern_listed_first_wins() {
+    for (patterns, index, matched, rest) in [
+        (["R", "R1"], 0, &b"R"[..], &b"1>"[..]),
+        (["R1", "R"], 0, b"R1", b">"),
+    ] {
+        let (mut s, mut device) = session();
+        device.write_all(b"R1>").await.unwrap();
+
+        let m = s.expect_any(&patterns, SECS_5).await.unwrap();
+
+        assert_match(&m, index, b"", matched);
+        assert_eq!(s.into_inner().1, rest, "{patterns:?}");
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn literals_and_regexes_mix_in_one_wait() {
+    let (mut s, mut device) = session();
+    device
+        .write_all(b"\r\n% Login invalid\r\n\r\nUsername: ")
+        .await
+        .unwrap();
+    let prompt = prompt();
+
+    let m = s
+        .expect_any(
+            &[Pattern::from(&prompt), Pattern::from("Username: ")],
+            SECS_5,
+        )
+        .await
+        .unwrap();
+
+    assert_match(&m, 1, b"\r\n% Login invalid\r\n\r\n", b"Username: ");
+}
+
+#[tokio::test(start_paused = true)]
+async fn no_patterns_wait_for_the_timeout() {
+    let (mut s, mut device) = session();
+    device.write_all(b"R1>").await.unwrap();
+
+    let result = s.expect_any::<&str>(&[], SECS_5).await;
+
+    assert!(
+        matches!(result, Err(Error::Timeout { ref buffer }) if buffer == b"R1>"),
+        "{result:?}"
+    );
 }
 
 /// Scenario 2: a prompt split across reads still matches, and not before

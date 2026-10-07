@@ -2,9 +2,10 @@
 //!
 //! An [`Expect`] session owns a [`Client`] and the data it has received but no
 //! wait has consumed yet. [`Expect::expect`] waits for a pattern in that data,
-//! and [`Expect::into_inner`] hands the client back.
+//! [`Expect::expect_any`] for any of several, and [`Expect::into_inner`] hands
+//! the client back.
 //!
-//! A pattern is a literal or a byte [`Regex`](regex::bytes::Regex), matched
+//! A pattern is a literal or a byte [`Regex`], matched
 //! against the received bytes in whatever encoding they arrive. Wait for a
 //! prompt with a regex anchored to the end of the data, so that a `#` or `>`
 //! inside a banner does not match first:
@@ -59,7 +60,7 @@ use tokio::time::Instant;
 pub use regex;
 
 /// What a wait looks for in the received data: a literal `&str` or a byte
-/// [`Regex`](regex::bytes::Regex).
+/// [`Regex`].
 #[derive(Debug, Clone)]
 pub struct Pattern(Kind);
 
@@ -204,6 +205,22 @@ where
         timeout: Duration,
     ) -> Result<Match, Error> {
         self.wait(&[pattern.into()], timeout).await
+    }
+
+    /// Waits up to `timeout` for any of `patterns`; [`Match::index`] says
+    /// which one matched.
+    ///
+    /// The earliest match in the data wins, and of patterns matching at the
+    /// same position, the one listed first. Literals and regexes mix as
+    /// [`Pattern`]s: `&[Pattern::from("% Login invalid"), Pattern::from(&prompt)]`.
+    /// With no patterns, nothing matches and the wait ends at the timeout.
+    /// Otherwise as [`Expect::expect`].
+    pub async fn expect_any<P>(&mut self, patterns: &[P], timeout: Duration) -> Result<Match, Error>
+    where
+        P: Into<Pattern> + Clone,
+    {
+        let patterns: Vec<Pattern> = patterns.iter().cloned().map(Into::into).collect();
+        self.wait(&patterns, timeout).await
     }
 
     /// Sends `line` followed by Enter, which the client turns into the
