@@ -372,6 +372,73 @@ async fn non_data_events_are_skipped() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_close_in_the_middle_of_a_wait_carries_what_arrived() {
+    let (mut s, mut device) = session();
+    let start = tokio::time::Instant::now();
+
+    let (result, ()) = tokio::join!(s.expect("#", SECS_5), async {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        device.write_all(b"\r\n%SYS-5-RELOAD: ").await.unwrap();
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        drop(device);
+    });
+
+    assert_eq!(start.elapsed(), Duration::from_secs(2));
+    match result {
+        Err(Error::Closed { buffer }) => assert_eq!(buffer, b"\r\n%SYS-5-RELOAD: "),
+        other => panic!("expected a close, got {other:?}"),
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn past_the_limit_the_oldest_bytes_go_and_a_prompt_at_the_tail_matches() {
+    let (mut s, mut device) = session();
+    s.set_buffer_limit(16);
+    for line in [&b"0123456789\r\n"[..], b"abcdefghij\r\n", b"ABCDEFGHIJ\r\n"] {
+        device.write_all(line).await.unwrap();
+    }
+    device.write_all(b"R1#").await.unwrap();
+
+    let m = s.expect("R1#", SECS_5).await.unwrap();
+
+    assert_match(&m, 0, b"\nABCDEFGHIJ\r\n", b"R1#");
+}
+
+#[tokio::test(start_paused = true)]
+async fn by_default_a_wait_keeps_the_last_mebibyte() {
+    let (mut s, mut device) = session();
+    let noise: Vec<u8> = (0..(1 << 20) + 100)
+        .map(|i| b'a' + (i % 26) as u8)
+        .collect();
+
+    let never = Regex::new(r"#$").unwrap();
+
+    let (result, ()) = tokio::join!(s.expect(&never, SECS_5), async {
+        device.write_all(&noise).await.unwrap();
+    });
+
+    match result {
+        Err(Error::Timeout { buffer }) => {
+            assert_eq!(buffer.len(), 1 << 20);
+            assert_eq!(buffer, noise[100..]);
+        }
+        other => panic!("expected a timeout, got {:?}", other.map(|m| m.index)),
+    }
+    assert_eq!(justelnet_expect::DEFAULT_BUFFER_LIMIT, 1 << 20);
+}
+
+#[tokio::test(start_paused = true)]
+async fn lowering_the_limit_trims_what_is_buffered() {
+    let (mut s, mut device) = session();
+    device.write_all(b"R1>show version\r\n").await.unwrap();
+    s.expect(">", SECS_5).await.unwrap();
+
+    s.set_buffer_limit(4);
+
+    assert_eq!(s.into_inner().1, b"on\r\n");
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_close_during_a_wait_carries_the_buffer() {
     let (mut s, mut device) = session();
     device.write_all(b"Connection closed by ").await.unwrap();

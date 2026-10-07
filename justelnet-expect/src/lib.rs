@@ -40,6 +40,44 @@
 //! `\S` matches only UTF-8 text. Where the prompt itself is in another
 //! encoding, such as a hostname in EUC-KR, use `(?-u:\S)`, which matches any
 //! byte that is not ASCII whitespace.
+//!
+//! # Long output and `--More--`
+//!
+//! A device that pages its output stops at a marker such as `--More--` and
+//! waits for a key. The session does not answer it for you, since markers and
+//! keys differ by vendor; wait for the marker or the prompt, and send the key
+//! on the marker:
+//!
+//! ```no_run
+//! # use std::time::Duration;
+//! # use justelnet_expect::{Expect, Pattern};
+//! # use justelnet_expect::regex::bytes::Regex;
+//! # async fn page(s: &mut Expect<tokio::net::TcpStream>) -> Result<(), Box<dyn std::error::Error>> {
+//! # let secs = Duration::from_secs;
+//! let prompt = Regex::new(r"\n\S+[#>] ?$")?;
+//! s.send_line("show running-config").await?;
+//! let mut output = Vec::new();
+//! loop {
+//!     let m = s
+//!         .expect_any(&[Pattern::from(" --More-- "), Pattern::from(&prompt)], secs(10))
+//!         .await?;
+//!     output.extend_from_slice(&m.before);
+//!     if m.index == 1 {
+//!         break;
+//!     }
+//!     s.send_raw(b" ").await?;
+//! }
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! Where the device allows it, turning paging off for the session is simpler:
+//! `terminal length 0` on Cisco IOS, `set cli screen-length 0` on Junos.
+//!
+//! A session keeps at most [`DEFAULT_BUFFER_LIMIT`] (1 MiB) of unmatched data
+//! and drops the oldest bytes past it, so one wait returns at most that much in
+//! [`Match::before`]. Paging keeps each wait short;
+//! [`Expect::set_buffer_limit`] raises the limit for one long output.
 #![doc(
     html_logo_url = "https://raw.githubusercontent.com/kihyun1998/justelnet/main/logo/icons/justelnet-icon-light-128.png"
 )]
@@ -176,23 +214,42 @@ impl From<justelnet::Error> for Error {
     }
 }
 
+/// How many unmatched bytes a session keeps unless told otherwise: 1 MiB.
+pub const DEFAULT_BUFFER_LIMIT: usize = 1 << 20;
+
 /// A client wrapped for automation, with the data no wait has consumed yet.
 #[derive(Debug)]
 pub struct Expect<S> {
     client: Client<S>,
     buffer: Vec<u8>,
+    limit: usize,
 }
 
 impl<S> Expect<S>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
-    /// Wraps `client`, with nothing buffered.
+    /// Wraps `client`, with nothing buffered and the buffer limited to
+    /// [`DEFAULT_BUFFER_LIMIT`].
     pub fn new(client: Client<S>) -> Self {
         Self {
             client,
             buffer: Vec::new(),
+            limit: DEFAULT_BUFFER_LIMIT,
         }
+    }
+
+    /// Keeps at most `bytes` of unmatched data, dropping the oldest first,
+    /// now and as data arrives.
+    ///
+    /// A prompt arrives last, so it still matches, but a wait whose output
+    /// runs past the limit returns only the newest `bytes` of it in
+    /// [`Match::before`]. Raise the limit for one long output, or take it
+    /// page by page (see the crate documentation). The buffer carried by
+    /// [`Error::Timeout`] and [`Error::Closed`] is limited the same way.
+    pub fn set_buffer_limit(&mut self, bytes: usize) {
+        self.limit = bytes;
+        self.trim();
     }
 
     /// Waits up to `timeout` for `pattern` in the buffered and incoming data.
@@ -263,7 +320,10 @@ where
                         buffer: self.buffer.clone(),
                     });
                 }
-                Ok(Ok(Event::Core(core::Event::Data(data)))) => self.buffer.extend(data),
+                Ok(Ok(Event::Core(core::Event::Data(data)))) => {
+                    self.buffer.extend(data);
+                    self.trim();
+                }
                 Ok(Ok(Event::Closed)) => {
                     return Err(Error::Closed {
                         buffer: self.buffer.clone(),
@@ -273,6 +333,12 @@ where
                 Ok(Err(e)) => return Err(e.into()),
             }
         }
+    }
+
+    /// Drops the oldest bytes past the limit.
+    fn trim(&mut self) {
+        let excess = self.buffer.len().saturating_sub(self.limit);
+        self.buffer.drain(..excess);
     }
 
     /// The earliest match in the buffer, ties going to the pattern listed

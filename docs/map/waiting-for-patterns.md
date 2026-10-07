@@ -17,7 +17,7 @@ The scenario 4 test's `--More--` loop stops itself after as many waits as there 
 - The timeout counts from the start of the wait, not from the last data, so a device trickling output without the prompt still times out. The error carries a copy of the buffer and the session keeps its own.
 - Data is appended; a clean close fails the wait with `Closed { buffer }`; every other Event is skipped, since the Core already handled it.
 
-Patterns are bytes (a `&str` literal matches its UTF-8 bytes), so an ASCII prompt matches on any encoding. The search runs over the whole buffer on every chunk; the buffer cap (#33) is what keeps that bounded, and resuming the search where the last one could no longer match is the known cheaper shape if it ever shows up in a measurement. A regex anchored with `$` is the exception: the regex crate searches it from the end, and on 2026-10-07 (release build, no prompt in the data) the documented prompt regex took 17–178 ns per search from 4 KiB to 1 MiB of buffer, where a literal took 1.7 µs at 4 KiB and 456 µs at 1 MiB.
+Patterns are bytes (a `&str` literal matches its UTF-8 bytes), so an ASCII prompt matches on any encoding. The search runs over the whole buffer on every chunk; the buffer limit (below) is what keeps that bounded, and resuming the search where the last one could no longer match is the known cheaper shape if it ever shows up in a measurement. A regex anchored with `$` is the exception: the regex crate searches it from the end, and on 2026-10-07 (release build, no prompt in the data) the documented prompt regex took 17–178 ns per search from 4 KiB to 1 MiB of buffer, where a literal took 1.7 µs at 4 KiB and 456 µs at 1 MiB.
 
 ## Byte regexes
 
@@ -32,6 +32,22 @@ The crate docs say this in one line under the example, pointing at `(?-u:\S)`, a
 `Pattern` also comes from `&Regex`, cloning it (the regex crate shares a compiled regex behind a reference count), so waiting on one prompt regex repeatedly needs no `.clone()` at each wait. #23 asked only that byte regexes be accepted wherever a pattern is; the borrowed form is the maintainer's call, made on 2026-10-07 over leaving it to #31 or not adding it, and theirs to reverse. A byte-literal pattern (`&[u8]`) was considered and dropped the same day: nobody asked for it, and a byte regex such as `(?-u)\xc7\xe3` already expresses one.
 
 `before_lossy` and `matched_lossy` are for display only. Some EUC-KR byte pairs are also valid UTF-8 (`\xda\xb8` reads as U+06B8), so the lossy text of an EUC-KR banner is a mix of replacement characters and unrelated letters, not a predictable string.
+
+## The buffer limit
+
+The session keeps at most `DEFAULT_BUFFER_LIMIT` (1 MiB) of unmatched data unless `set_buffer_limit` says otherwise, and drops the oldest bytes past it: after each chunk is appended and before it is searched, and at once when the limit is lowered, so the buffer never holds more than the limit. Dropping rather than refusing is #8's and #23's decision. It parts from pexpect, whose buffer is unbounded and whose `searchwindowsize` only narrows what is searched ("Data before searchwindowsize point is preserved, but not searched", `pexpect/spawnbase.py`).
+
+The buffer grows only inside a wait: nothing reads the socket between waits, so a chatty device then fills the socket and TCP slows it, not this buffer (#23's story 21 assumed otherwise). What the limit bounds is one long wait that never matches.
+
+1 MiB is this implementation's value, which #23 left to it: it holds a large `show running-config` in one wait. Measured on 2026-10-07 (release build): pushing 1 MiB plus 100 bytes through a 1 KiB pipe at a literal that never matches took 0.56 s, each chunk re-searching up to the whole MiB (9 s in a debug build), against 17–178 ns per search for an end-anchored regex. So the limit is also the ceiling on that re-search; the test of the default waits on an anchored regex to stay fast.
+
+Past the limit, `before` silently loses its head. Saying so in the documentation of `set_buffer_limit` and the crate, rather than reporting the dropped count in `Match`, is the maintainer's call, made on 2026-10-07; it is theirs to reverse. Shown afterwards that the Timeout and Closed buffers are cut the same way, they chose the same: one more line in `set_buffer_limit`'s documentation, no new field.
+
+The whole-buffer re-search behind the 0.56 s is #60.
+
+## Paging
+
+The crate documentation shows the `--More--` loop (wait for the marker or the prompt, send a space on the marker), the shape scenario 4's test proves, and the commands that turn paging off: `terminal length 0` on Cisco IOS and `set cli screen-length 0` on Junos (Juniper's CLI environment settings documentation, read through a search summary on 2026-10-07). Paging is not built in, per #8.
 
 ## Handing the client back
 
