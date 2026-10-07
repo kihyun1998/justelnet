@@ -13,7 +13,7 @@ Measured on 2026-10-07 with cargo 1.96, before anything was published:
 - `cargo package -p justelnet` fails with `no matching package named justelnet-core found`: a crate's path dependencies must already be on crates.io. `cargo package --workspace` packages all three and verifies each against a temporary local registry, and passes.
 - That verification builds only the libraries. It passed while `justelnet/tests/cancel_safety.rs` includes `../../justelnet-core/tests/transcripts/telnetd-netkit-rhel9.txt`, a file the published `justelnet` crate will not contain (#26's finding, carried on #36). So the checklist adds a grep for includes that reach outside a crate, which finds exactly that line.
 
-The checklist therefore fails on main as of 2026-10-07 until that test stops reading outside its crate. Fixing it is not part of the checklist; it is #55.
+The checklist failed on main on 2026-10-07 until #55 gave that test its own copy of the bytes; after it, the grep prints nothing.
 
 ## Calls
 

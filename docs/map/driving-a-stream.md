@@ -34,6 +34,8 @@ The proof is a randomized test: the device plays the server bytes of the netkit 
 
 Each thing the proof leans on was broken once and the test went red (2026-09-29): output taken into a local before writing, an await between read and receive, and a write count reset on every call all fail from seed 1. Clearing the flush flag before the flush has finished fails only from seed 49: the flush window is narrow, and a seed count much below 300 would miss it.
 
+The test holds its own copy of the netkit Transcript's five `server:` lines rather than including `justelnet-core/tests/transcripts/telnetd-netkit-rhel9.txt`, since the published `justelnet` crate ships its tests but not that file (#55). The copy matched the Transcript byte for byte when made, and the flush-flag mutation still failed from seed 49 (2026-10-07). Copying the lines, over copying the whole file or leaving the tests out of the package, is the maintainer's call, made on 2026-10-07; it is theirs to reverse. A change to that Transcript does not reach this test.
+
 ## Sending
 
 Every send method (`send_data`, `send_raw`, `send_command`, `set_window_size`, `request_enable`, `request_disable`, `send_subnegotiation`) hands the call to the Core under the Core's own name, then writes everything queued, so bytes queued earlier (an answer, an active start) go out first and in order. A Core refusal (`Error::Core`) returns before writing: the call sends nothing, anything queued earlier waits for the next call, and the connection stays usable (#10: caller misuse). A failed write ends the connection like a failed read. After the end, the methods return `Error::Closed` without giving the Core anything. `is_enabled` reads the Core's state and works at any time.
