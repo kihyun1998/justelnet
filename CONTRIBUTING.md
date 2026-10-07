@@ -22,3 +22,15 @@ A fix for a crash lands with the crashing input as a Transcript under `justelnet
 2. Its first byte is the number of chunk lengths that follow; those bytes are the lengths, and the rest is what the peer sent. The Transcript needs only that rest: the replay splits every Transcript at arbitrary points already.
 3. Write it as `server:` lines with the `client:` and `event:` lines the fixed Core must produce, starting with `policy:` lines only if the crash needs a policy other than the default. The directives are listed at the top of `justelnet-core/tests/common/mod.rs`.
 4. Watch the Transcript fail on the unfixed Core before the fix goes in.
+
+## Logging in to a real telnetd
+
+`justelnet-expect/tests/real_telnetd.rs` logs in to GNU inetutils telnetd 2.8, runs one command and logs out. It is ignored by default and needs the container in `ci/inetutils-telnetd` and Docker:
+
+```sh
+docker build -t justelnet-telnetd ci/inetutils-telnetd
+docker run -d --name telnetd --hostname e2e -p 127.0.0.1:2323:23 justelnet-telnetd
+JUSTELNET_E2E_ADDR=127.0.0.1:2323 cargo test -p justelnet-expect --test real_telnetd -- --ignored
+```
+
+Set `JUSTELNET_E2E_RECORDING=<file>` to keep the bytes each side sent. The `e2e` job in the `CI` workflow runs it on every pull request, also with a wrong password, which must fail, and uploads those bytes as the `inetutils-telnetd-recording` artifact.

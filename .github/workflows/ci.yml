@@ -36,3 +36,39 @@ jobs:
         with:
           toolchain: ${{ steps.msrv.outputs.version }}
       - run: cargo test --workspace --locked
+
+  e2e:
+    name: e2e (ubuntu-latest, inetutils telnetd)
+    runs-on: ubuntu-latest
+    env:
+      JUSTELNET_E2E_ADDR: 127.0.0.1:2323
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Start inetutils telnetd
+        run: |
+          docker build -t justelnet-telnetd ci/inetutils-telnetd
+          docker run -d --name telnetd --hostname e2e -p 127.0.0.1:2323:23 justelnet-telnetd
+          for _ in $(seq 30); do (exec 3<>/dev/tcp/127.0.0.1/2323) 2>/dev/null && exit 0; sleep 1; done
+          docker logs telnetd
+          exit 1
+      - name: Log in, run a command, log out
+        run: cargo test -p justelnet-expect --test real_telnetd --locked -- --ignored
+        env:
+          JUSTELNET_E2E_RECORDING: ${{ runner.temp }}/inetutils-telnetd.txt
+      - name: A wrong password fails and shows what arrived
+        run: |
+          if cargo test -p justelnet-expect --test real_telnetd --locked -- --ignored > wrong-password.log 2>&1; then
+            cat wrong-password.log
+            echo "the login succeeded with a wrong password"
+            exit 1
+          fi
+          cat wrong-password.log
+          grep -F "Login incorrect" wrong-password.log
+        env:
+          JUSTELNET_E2E_PASSWORD: wrong
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: inetutils-telnetd-recording
+          path: ${{ runner.temp }}/inetutils-telnetd.txt
