@@ -31,3 +31,7 @@ A Transcript without policy lines runs against `OptionPolicy::default()`, active
 ## What a capture can and cannot supply
 
 A client that answers nothing records only the server's first burst: the lab netkit telnetd sent twelve bytes in ten seconds and then waited (2026-10-08). A PuTTY log of a telnet session holds no bytes at all: with "SSH packets and raw data" set, `otherbackends/telnet.c` reports negotiation only through `logevent` as text (`server negotiation: DO TTYPE`), names an option it does not know `<unknown>`, and `log_packet` is never called for telnet (PuTTY source, 2026-08-26 head). So the procedure takes bytes from a silent capture or the end-to-end recording, and uses a PuTTY log for order only.
+
+## A failure prints as Transcript lines
+
+A step's Outcome prints as the `client:` and `event:` lines it would take in a Transcript, so a failure can be read against the file line by line rather than converted from decimal. `tests/transcript_format.rs` holds the printing to the parser: every expected Outcome, and one holding every byte, option code and command, must parse back to itself, so a new Event variant the printer does not know turns it red as soon as a Transcript expects one (the printer falls back to its Debug, which the parser rejects). The printer escapes `"` inside text, but the parser also accepts a bare one there, so dropping that escape is a change no test sees (2026-10-08).
