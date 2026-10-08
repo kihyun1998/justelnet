@@ -1,53 +1,6 @@
 //! Transcript parsing and replay against the Core's public API.
 //!
-//! A Transcript is a text file, one directive per line:
-//!
-//! - `# ...` a comment; blank lines are ignored
-//! - `policy: empty` refuse every option on both sides and start passive;
-//!   `policy: passive` start passive. Without either, the default Option
-//!   policy is used
-//! - `accept: <side> <option>`, `request: <side> <option>`,
-//!   `refuse: <side> <option>` change the Option policy for this option
-//!
-//! - `terminal-types: <name> <name> …` the Option policy's TTYPE list
-//! - `window-size: <width> <height>` the Option policy's NAWS window size
-//! - `end-of-line: crlf|crnul|lf` what the Option policy sends for a CR
-//! - `passthrough: <option>` a Passthrough option in the Option policy
-//! - `variable: "<name>" "<value>"`, `user-variable: "<name>" "<value>"` a
-//!   NEW-ENVIRON VAR or USERVAR in the Option policy; both quoted like data
-//!
-//! Policy lines apply in order, and only before the first step.
-//!
-//! - `server: <hex bytes>` bytes the peer sends; starts a new step
-//! - `call: enable|disable <side> <option>` a runtime request from the caller,
-//!   `call: window <width> <height>` a window-size change,
-//!   `call: data "<text>"` and `call: raw "<text>"` sending data, or
-//!   `call: command <NOP|DM|BRK|IP|AO|AYT|EC|EL|GA>` sending a command, or
-//!   `call: subnegotiation <option> <hex bytes>` sending a raw subnegotiation;
-//!   starts a new step
-//! - `error: not-enabled|not-passthrough <option>` the Error the step's call
-//!   must return;
-//!   without it, the call must succeed
-//! - `client: <hex bytes>` bytes the Core must send during the current step
-//! - `event: data "<text>"` an Event the Core must emit during the current step;
-//!   the text accepts `\r`, `\n`, `\\`, `\"` and `\xNN` escapes
-//! - `event: option <side> <option> on|off` an OptionChanged Event
-//! - `event: command <NOP|DM|BRK|IP|AO|AYT|EC|EL|GA>` a Command Event
-//! - `event: subnegotiation <option> <hex bytes>` a Subnegotiation Event
-//! - `event: warning malformed <option> <hex byte>`,
-//!   `event: warning truncated <option>`,
-//!   `event: warning unknown-command <hex byte>` and
-//!   `event: warning noncompliant <side> <option>` Warning Events
-//! - `terminal-type-sent: <name>|none` what the Core must report as the
-//!   terminal type it last sent, at the end of the current step
-//!
-//! In hex bytes, `xx*N` stands for the byte `xx` repeated N times.
-//!
-//! A side is `local` or `remote`. An option is a name (`BINARY`, `ECHO`, `SGA`,
-//! `TM`, `TTYPE`, `NAWS`, `NEW-ENVIRON`, …) or a two-digit hex code.
-//! Lines before the first `server:` or `call:` form a step with no server bytes.
-//! Adjacent Data Events are merged before comparing, so how received bytes
-//! were chunked never changes the result.
+//! The format this reads is docs/transcripts.md.
 
 #![allow(dead_code)]
 

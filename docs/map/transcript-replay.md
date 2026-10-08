@@ -23,3 +23,11 @@ It is not checked after every chunk: that cost grew with each Transcript (the ch
 ## Transcripts start from the default Option policy
 
 A Transcript without policy lines runs against `OptionPolicy::default()`, active start included, so its first step expects the start's bytes. `policy: empty` gives the blank slate the option-engine Transcripts are written against: nothing accepted, a passive start, so only what the Transcript lists happens.
+
+## Where the format is written down
+
+`docs/transcripts.md` is the one description of the format; the doc comment atop `tests/common/mod.rs` only points to it. Keeping the directive list in one place, rather than in both, is the maintainer's call (2026-10-08, chosen over a section in CONTRIBUTING.md that pointed at the list in `mod.rs`, and over a copy in each); it is theirs to reverse. A new directive in the parser has to be added to that page.
+
+## What a capture can and cannot supply
+
+A client that answers nothing records only the server's first burst: the lab netkit telnetd sent twelve bytes in ten seconds and then waited (2026-10-08). A PuTTY log of a telnet session holds no bytes at all: with "SSH packets and raw data" set, `otherbackends/telnet.c` reports negotiation only through `logevent` as text (`server negotiation: DO TTYPE`), names an option it does not know `<unknown>`, and `log_packet` is never called for telnet (PuTTY source, 2026-08-26 head). So the procedure takes bytes from a silent capture or the end-to-end recording, and uses a PuTTY log for order only.
