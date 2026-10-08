@@ -4,6 +4,9 @@
 # answers it, and send_do/send_will skip any option already on, so phase 2
 # holds only what is still unsettled. (The same answer order was seen on a
 # netkit telnetd, telnetd-netkit-rhel9.txt.)
+# The real server, recorded, is telnetd-inetutils-2.8-recorded.txt; it also
+# sends a second TTYPE SEND and DO BINARY, which this reading of the source
+# leaves out.
 client: ff fb 1f ff fb 18 ff fb 27 ff fd 01 ff fb 03 ff fd 03
 
 # Phase 1: DO TTYPE, TSPEED, XDISPLOC, NEW-ENVIRON, OLD-ENVIRON. TTYPE and
