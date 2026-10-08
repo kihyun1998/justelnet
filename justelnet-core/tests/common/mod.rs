@@ -56,10 +56,130 @@ pub struct Replay {
     enabled: HashSet<(TelnetOption, Side)>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+/// What one step made the Core do. Prints as the `client:` and `event:` lines
+/// of a Transcript, one per line, or `# nothing`.
+#[derive(PartialEq, Eq)]
 pub struct Outcome {
     pub client: Vec<u8>,
     pub events: Vec<Event>,
+}
+
+impl std::fmt::Debug for Outcome {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.client.is_empty() && self.events.is_empty() {
+            return write!(f, "# nothing");
+        }
+        if !self.client.is_empty() {
+            write!(f, "\nclient: {}", hex_text(&self.client))?;
+        }
+        for e in &self.events {
+            write!(f, "\nevent: {}", event_text(e))?;
+        }
+        Ok(())
+    }
+}
+
+fn hex_text(bytes: &[u8]) -> String {
+    let words: Vec<String> = bytes.iter().map(|b| format!("{b:02x}")).collect();
+    words.join(" ")
+}
+
+fn quoted_text(bytes: &[u8]) -> String {
+    let mut out = String::from("\"");
+    for &b in bytes {
+        match b {
+            b'\r' => out.push_str("\\r"),
+            b'\n' => out.push_str("\\n"),
+            b'\\' => out.push_str("\\\\"),
+            b'"' => out.push_str("\\\""),
+            b' '..=b'~' => out.push(b as char),
+            _ => out.push_str(&format!("\\x{b:02x}")),
+        }
+    }
+    out.push('"');
+    out
+}
+
+fn side_text(side: Side) -> String {
+    match side {
+        Side::Local => "local".to_owned(),
+        Side::Remote => "remote".to_owned(),
+        other => format!("{other:?}"),
+    }
+}
+
+fn option_text(option: TelnetOption) -> String {
+    let name = match option {
+        TelnetOption::BINARY => "BINARY",
+        TelnetOption::ECHO => "ECHO",
+        TelnetOption::SGA => "SGA",
+        TelnetOption::STATUS => "STATUS",
+        TelnetOption::TM => "TM",
+        TelnetOption::TTYPE => "TTYPE",
+        TelnetOption::NAWS => "NAWS",
+        TelnetOption::TSPEED => "TSPEED",
+        TelnetOption::LFLOW => "LFLOW",
+        TelnetOption::LINEMODE => "LINEMODE",
+        TelnetOption::XDISPLOC => "XDISPLOC",
+        TelnetOption::OLD_ENVIRON => "OLD-ENVIRON",
+        TelnetOption::NEW_ENVIRON => "NEW-ENVIRON",
+        TelnetOption::COM_PORT => "COM-PORT",
+        other => return format!("{:02x}", other.code()),
+    };
+    name.to_owned()
+}
+
+fn command_text(command: Command) -> String {
+    let name = match command {
+        Command::NoOperation => "NOP",
+        Command::DataMark => "DM",
+        Command::Break => "BRK",
+        Command::InterruptProcess => "IP",
+        Command::AbortOutput => "AO",
+        Command::AreYouThere => "AYT",
+        Command::EraseCharacter => "EC",
+        Command::EraseLine => "EL",
+        Command::GoAhead => "GA",
+        other => return format!("{other:?}"),
+    };
+    name.to_owned()
+}
+
+/// An Event as the text after `event: `; one the format has no line for
+/// prints as its Debug.
+fn event_text(e: &Event) -> String {
+    match e {
+        Event::Data(data) => format!("data {}", quoted_text(data)),
+        Event::OptionChanged {
+            option,
+            side,
+            enabled,
+        } => format!(
+            "option {} {} {}",
+            side_text(*side),
+            option_text(*option),
+            if *enabled { "on" } else { "off" }
+        ),
+        Event::Command(command) => format!("command {}", command_text(*command)),
+        Event::Subnegotiation { option, data } => {
+            format!("subnegotiation {} {}", option_text(*option), hex_text(data))
+        }
+        Event::Warning(Warning::MalformedSubnegotiation { option, byte }) => {
+            format!("warning malformed {} {byte:02x}", option_text(*option))
+        }
+        Event::Warning(Warning::SubnegotiationTruncated { option }) => {
+            format!("warning truncated {}", option_text(*option))
+        }
+        Event::Warning(Warning::NoncompliantAnswer { option, side }) => format!(
+            "warning noncompliant {} {}",
+            side_text(*side),
+            option_text(*option)
+        ),
+        Event::Warning(Warning::UnknownCommand { byte }) => {
+            format!("warning unknown-command {byte:02x}")
+        }
+        other => format!("{other:?}"),
+    }
 }
 
 pub fn transcripts_dir() -> PathBuf {
@@ -513,6 +633,19 @@ impl Replay {
                 );
             }
         }
+    }
+}
+
+/// Reads `client:` and `event:` lines, as an Outcome prints them, back into one.
+pub fn parse_outcome(text: &str) -> Outcome {
+    let t = parse("outcome", text);
+    match t.steps.as_slice() {
+        [] => Outcome {
+            client: Vec::new(),
+            events: Vec::new(),
+        },
+        [step] if step.call.is_none() && step.server.is_empty() => expected(step),
+        _ => panic!("expected only `client:` and `event:` lines"),
     }
 }
 

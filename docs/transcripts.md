@@ -130,7 +130,7 @@ Then run the replay with only the `server:` lines written:
 cargo test -p justelnet-core --test transcripts
 ```
 
-It fails, and the failure shows what the Core did (`left`) next to what the file expects (`right`). The bytes print in **decimal**: `255, 252, 32` is `ff fc 20`, IAC WONT TSPEED.
+It fails, and the failure shows what the Core did (`left`) next to what the file expects (`right`), each as the `client:` and `event:` lines of a Transcript, or `# nothing`.
 
 **Check each byte and Event against the RFCs and the policy before writing it down.** Copying `left` into the file makes a Transcript that records what the Core happens to do, and it can never fail. A byte the Core gets wrong is a Transcript worth keeping: write what it should do, watch it fail, and fix the Core.
 
@@ -166,8 +166,11 @@ server: ff fd 18 ff fd 20 ff fd 23 ff fd 27
 With only that line in the file, the replay fails with:
 
 ```
-left: Outcome { client: [255, 251, 31, 255, 251, 24, 255, 251, 39, 255, 253, 1, 255, 251, 3, 255, 253, 3, 255, 252, 32, 255, 252, 35], events: [OptionChanged { option: TelnetOption(24), side: Local, enabled: true }, OptionChanged { option: TelnetOption(39), side: Local, enabled: true }] }
-right: Outcome { client: [], events: [] }
+  left:
+client: ff fb 1f ff fb 18 ff fb 27 ff fd 01 ff fb 03 ff fd 03 ff fc 20 ff fc 23
+event: option local TTYPE on
+event: option local NEW-ENVIRON on
+ right: # nothing
 ```
 
 Read against the default policy:
