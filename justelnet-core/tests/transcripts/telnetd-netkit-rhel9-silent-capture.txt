@@ -1,0 +1,10 @@
+# netkit telnetd on RHEL 9 (Kernel 5.14.0-570.12.1.el9_6), captured
+# 2026-10-08 with a client that answered nothing, against the default policy.
+# The worked example in docs/transcripts.md.
+client: ff fb 1f ff fb 18 ff fb 27 ff fd 01 ff fb 03 ff fd 03
+
+# Everything the server sent in 10 s: DO TTYPE, TSPEED, XDISPLOC, NEW-ENVIRON.
+server: ff fd 18 ff fd 20 ff fd 23 ff fd 27
+client: ff fc 20 ff fc 23
+event: option local TTYPE on
+event: option local NEW-ENVIRON on

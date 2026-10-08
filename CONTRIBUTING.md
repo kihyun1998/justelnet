@@ -20,7 +20,7 @@ A fix for a crash lands with the crashing input as a Transcript under `justelnet
 
 1. Take the input (from `fuzz/artifacts/receive/` or the workflow artifact), shrink it with `cargo +nightly fuzz tmin receive <file>`, and see what it holds: `cargo +nightly fuzz fmt receive <file>`, or a hex dump.
 2. Its first byte is the number of chunk lengths that follow; those bytes are the lengths, and the rest is what the peer sent. The Transcript needs only that rest: the replay splits every Transcript at arbitrary points already.
-3. Write it as `server:` lines with the `client:` and `event:` lines the fixed Core must produce, starting with `policy:` lines only if the crash needs a policy other than the default. The directives are listed at the top of `justelnet-core/tests/common/mod.rs`.
+3. Write it as `server:` lines with the `client:` and `event:` lines the fixed Core must produce, starting with `policy:` lines only if the crash needs a policy other than the default. The format is [docs/transcripts.md](docs/transcripts.md).
 4. Watch the Transcript fail on the unfixed Core before the fix goes in.
 
 ## Logging in to a real telnetd
