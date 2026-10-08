@@ -35,6 +35,6 @@ Measured locally on 2026-10-07: the login takes 0.8 s, the wrong-password step 1
 
 ## The recording artifact
 
-Every run uploads `inetutils-telnetd-recording`: the bytes each side sent, in order, as `server:` and `client:` lines, written even when the test fails. It is not replayable as is, since the runner also checks `event:` lines, which a byte recording does not have. Promoting it into the replay suite is the capture-to-Transcript procedure in [docs/transcripts.md](../transcripts.md#from-the-end-to-end-recording).
+Every run uploads `inetutils-telnetd-recording`: the bytes each side sent, in order, as `server:` and `client:` lines, written even when the test fails. It is not replayable as is, since the runner also checks `event:` lines, which a byte recording does not have. Promoting it into the replay suite is the capture-to-Transcript procedure in [docs/transcripts.md](../transcripts.md#from-the-end-to-end-recording). Up to the login prompt it was the same in six runs (2026-10-07 to 2026-10-08) and is promoted as `telnetd-inetutils-2.8-recorded.txt`; what follows the prompt carries the test account and is not.
 
 #24 and #35 call this artifact a Transcript, but a Transcript (GLOSSARY.md) carries the `event:` lines too. Calling it a recording (`JUSTELNET_E2E_RECORDING`, artifact `inetutils-telnetd-recording`) is the maintainer's call, made on 2026-10-07 over keeping the spec's word or adding a glossary entry; it is theirs to reverse.
