@@ -86,6 +86,7 @@
 )]
 
 use std::borrow::Cow;
+use std::fmt;
 use std::time::Duration;
 
 use justelnet::core::{self, Command};
@@ -110,14 +111,24 @@ enum Kind {
 
 impl Pattern {
     /// Where the pattern first matches in `haystack`, as a start and end.
-    fn find(&self, haystack: &[u8]) -> Option<(usize, usize)> {
+    /// A literal is looked for from `from` on; a regex always searches the
+    /// whole of `haystack`.
+    fn find(&self, haystack: &[u8], from: usize) -> Option<(usize, usize)> {
         match &self.0 {
             Kind::Literal(literal) if literal.is_empty() => Some((0, 0)),
-            Kind::Literal(literal) => haystack
-                .windows(literal.len())
-                .position(|window| window == literal.as_slice())
-                .map(|start| (start, start + literal.len())),
+            Kind::Literal(literal) => memchr::memmem::find(&haystack[from..], literal)
+                .map(|start| (from + start, from + start + literal.len())),
             Kind::Regex(regex) => regex.find(haystack).map(|m| (m.start(), m.end())),
+        }
+    }
+
+    /// Where the next search can start, after a `haystack` of `searched`
+    /// bytes held no match: a literal's start in its last `len - 1` bytes,
+    /// the beginning for a regex.
+    fn resume_from(&self, searched: usize) -> usize {
+        match &self.0 {
+            Kind::Literal(literal) => searched.saturating_sub(literal.len().saturating_sub(1)),
+            Kind::Regex(_) => 0,
         }
     }
 }
@@ -218,11 +229,31 @@ impl From<justelnet::Error> for Error {
 pub const DEFAULT_BUFFER_LIMIT: usize = 1 << 20;
 
 /// A client wrapped for automation, with the data no wait has consumed yet.
-#[derive(Debug)]
 pub struct Expect<S> {
     client: Client<S>,
+    /// The unmatched data is `buffer[head..]`; the bytes ahead of `head`
+    /// were dropped past the limit and are not yet reclaimed.
     buffer: Vec<u8>,
+    head: usize,
     limit: usize,
+}
+
+/// Shows the client, the unmatched data and the limit.
+impl<S: fmt::Debug> fmt::Debug for Expect<S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Expect")
+            .field("client", &self.client)
+            .field("buffer", &self.unmatched())
+            .field("limit", &self.limit)
+            .finish()
+    }
+}
+
+impl<S> Expect<S> {
+    /// The data no wait has consumed yet.
+    fn unmatched(&self) -> &[u8] {
+        &self.buffer[self.head..]
+    }
 }
 
 impl<S> Expect<S>
@@ -235,6 +266,7 @@ where
         Self {
             client,
             buffer: Vec::new(),
+            head: 0,
             limit: DEFAULT_BUFFER_LIMIT,
         }
     }
@@ -304,29 +336,34 @@ where
     }
 
     /// Hands back the client and the data no wait has consumed.
-    pub fn into_inner(self) -> (Client<S>, Vec<u8>) {
+    pub fn into_inner(mut self) -> (Client<S>, Vec<u8>) {
+        self.reclaim();
         (self.client, self.buffer)
     }
 
     async fn wait(&mut self, patterns: &[Pattern], timeout: Duration) -> Result<Match, Error> {
         let deadline = Instant::now() + timeout;
+        let mut from = vec![0; patterns.len()];
         loop {
-            if let Some(m) = self.take_match(patterns) {
+            if let Some(m) = self.take_match(patterns, &mut from) {
                 return Ok(m);
             }
             match tokio::time::timeout_at(deadline, self.client.next_event()).await {
                 Err(_) => {
                     return Err(Error::Timeout {
-                        buffer: self.buffer.clone(),
+                        buffer: self.unmatched().to_vec(),
                     });
                 }
                 Ok(Ok(Event::Core(core::Event::Data(data)))) => {
-                    self.buffer.extend(data);
-                    self.trim();
+                    self.append(&data);
+                    let dropped = self.trim();
+                    for start in &mut from {
+                        *start = start.saturating_sub(dropped);
+                    }
                 }
                 Ok(Ok(Event::Closed)) => {
                     return Err(Error::Closed {
-                        buffer: self.buffer.clone(),
+                        buffer: self.unmatched().to_vec(),
                     });
                 }
                 Ok(Ok(_)) => {}
@@ -335,27 +372,100 @@ where
         }
     }
 
-    /// Drops the oldest bytes past the limit.
-    fn trim(&mut self) {
-        let excess = self.buffer.len().saturating_sub(self.limit);
-        self.buffer.drain(..excess);
+    /// Appends `data`, reclaiming the dropped bytes first where the buffer
+    /// would otherwise grow to hold them, with room left for as much again.
+    fn append(&mut self, data: &[u8]) {
+        if self.head > 0 && self.buffer.len() + data.len() > self.buffer.capacity() {
+            self.reclaim();
+            self.buffer.reserve_exact(self.buffer.len() + data.len());
+        }
+        self.buffer.extend_from_slice(data);
     }
 
-    /// The earliest match in the buffer, ties going to the pattern listed
-    /// first, taken out of the buffer with the data ahead of it.
-    fn take_match(&mut self, patterns: &[Pattern]) -> Option<Match> {
-        let (index, start, end) = patterns
-            .iter()
-            .enumerate()
-            .filter_map(|(i, p)| p.find(&self.buffer).map(|(start, end)| (i, start, end)))
-            .min_by_key(|&(i, start, _)| (start, i))?;
-        let rest = self.buffer.split_off(end);
-        let matched = self.buffer.split_off(start);
-        let before = std::mem::replace(&mut self.buffer, rest);
+    /// Moves the unmatched data to the front, freeing the dropped bytes.
+    fn reclaim(&mut self) {
+        self.buffer.drain(..self.head);
+        self.head = 0;
+    }
+
+    /// Drops the oldest unmatched bytes past the limit and returns how many.
+    /// The dropped bytes are reclaimed once they reach the limit.
+    fn trim(&mut self) -> usize {
+        let excess = self.unmatched().len().saturating_sub(self.limit);
+        self.head += excess;
+        if self.head >= self.limit {
+            self.reclaim();
+        }
+        excess
+    }
+
+    /// The earliest match in the unmatched data, ties going to the pattern
+    /// listed first, taken out of the buffer with the data ahead of it.
+    /// `from` holds where each pattern's search starts, and is moved on for
+    /// each pattern that does not match.
+    fn take_match(&mut self, patterns: &[Pattern], from: &mut [usize]) -> Option<Match> {
+        let unmatched = self.unmatched();
+        let mut earliest: Option<(usize, usize, usize)> = None;
+        for (i, pattern) in patterns.iter().enumerate() {
+            match pattern.find(unmatched, from[i]) {
+                Some((start, end)) => {
+                    if earliest.is_none_or(|(_, first, _)| start < first) {
+                        earliest = Some((i, start, end));
+                    }
+                }
+                None => from[i] = pattern.resume_from(unmatched.len()),
+            }
+        }
+        let (index, start, end) = earliest?;
+        let rest = self.buffer.split_off(self.head + end);
+        let matched = self.buffer.split_off(self.head + start);
+        let before = self.buffer.split_off(self.head);
+        self.buffer = rest;
+        self.head = 0;
         Some(Match {
             index,
             before,
             matched,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use justelnet::core::OptionPolicy;
+    use tokio::io::{AsyncWriteExt, duplex};
+
+    use super::*;
+
+    /// The allocation stays within about twice the limit plus one read, also
+    /// when a one-byte read shifts where the dropped bytes add up to the limit.
+    #[tokio::test(start_paused = true)]
+    async fn the_buffer_allocation_stays_near_twice_the_limit() {
+        const LIMIT: usize = 1024;
+        const READ: usize = 256;
+        let (stream, mut device) = duplex(4096);
+        let mut s = Expect::new(Client::new(
+            stream,
+            OptionPolicy::builder().refuse_all().build(),
+        ));
+        s.set_buffer_limit(LIMIT);
+
+        let (result, ()) = tokio::join!(s.expect("#", Duration::from_secs(60)), async {
+            for i in 0..64 {
+                if i == 8 {
+                    device.write_all(b"x").await.unwrap();
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+                device.write_all(&[b'x'; READ]).await.unwrap();
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+        });
+
+        assert!(matches!(result, Err(Error::Timeout { .. })), "{result:?}");
+        assert!(
+            s.buffer.capacity() <= 2 * LIMIT + READ,
+            "capacity {} for a limit of {LIMIT}",
+            s.buffer.capacity()
+        );
     }
 }
