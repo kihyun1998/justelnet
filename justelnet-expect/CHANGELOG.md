@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-12
+
 ### Added
 
 - `Expect::set_log` hands the data a session sends and receives to a
@@ -25,5 +27,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release: Expect-style automation over a justelnet client.
 
-[Unreleased]: https://github.com/kihyun1998/justelnet/compare/justelnet-expect-v0.1.0...HEAD
+[Unreleased]: https://github.com/kihyun1998/justelnet/compare/justelnet-expect-v0.1.1...HEAD
+[0.1.1]: https://github.com/kihyun1998/justelnet/compare/justelnet-expect-v0.1.0...justelnet-expect-v0.1.1
 [0.1.0]: https://github.com/kihyun1998/justelnet/releases/tag/justelnet-expect-v0.1.0
