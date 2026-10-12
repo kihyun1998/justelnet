@@ -1,15 +1,17 @@
 [package]
 name = "justelnet"
-version = "0.0.0"
+version = "0.1.0"
 description = "Telnet client for tokio, built on justelnet-core."
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 readme.workspace = true
+keywords = ["telnet", "tokio", "client", "async", "network"]
+categories = ["network-programming", "asynchronous"]
 
 [dependencies]
-justelnet-core = { version = "0.0.0", path = "../justelnet-core" }
+justelnet-core = { version = "0.1.0", path = "../justelnet-core" }
 socket2 = "0.6"
 tokio = { version = "1.53", default-features = false, features = ["io-util", "net", "time"] }
 

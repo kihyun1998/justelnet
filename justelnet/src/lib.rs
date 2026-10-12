@@ -3,6 +3,7 @@
 //! A [`Client`] owns one [`core::Core`] and one stream. The caller loops on
 //! [`Client::next_event`], which writes the Core's answers to the peer before
 //! it returns. There is no background task.
+#![warn(missing_docs)]
 #![doc(
     html_logo_url = "https://raw.githubusercontent.com/kihyun1998/justelnet/main/logo/icons/justelnet-icon-light-128.png"
 )]

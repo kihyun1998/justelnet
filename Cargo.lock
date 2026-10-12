@@ -97,7 +97,7 @@ dependencies = [
 
 [[package]]
 name = "justelnet"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "justelnet-core",
  "socket2",
@@ -106,14 +106,14 @@ dependencies = [
 
 [[package]]
 name = "justelnet-core"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "proptest",
 ]
 
 [[package]]
 name = "justelnet-expect"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "justelnet",
  "memchr",

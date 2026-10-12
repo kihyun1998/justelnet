@@ -1,15 +1,17 @@
 [package]
 name = "justelnet-expect"
-version = "0.0.0"
+version = "0.1.0"
 description = "Expect-style automation over a justelnet client."
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 readme.workspace = true
+keywords = ["telnet", "expect", "automation", "tokio", "network"]
+categories = ["network-programming", "asynchronous"]
 
 [dependencies]
-justelnet = { version = "0.0.0", path = "../justelnet" }
+justelnet = { version = "0.1.0", path = "../justelnet" }
 memchr = "2.8"
 regex = "1.13"
 tokio = { version = "1.53", default-features = false, features = ["time"] }

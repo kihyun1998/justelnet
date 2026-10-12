@@ -4,6 +4,7 @@
 //! received bytes with [`Core::receive`], then takes [`Event`]s out with
 //! [`Core::poll_event`] and the bytes to send with [`Core::poll_transmit`].
 //! The Core performs no I/O and has no notion of time.
+#![warn(missing_docs)]
 #![doc(
     html_logo_url = "https://raw.githubusercontent.com/kihyun1998/justelnet/main/logo/icons/justelnet-icon-light-128.png"
 )]
@@ -22,15 +23,23 @@ pub enum Event {
     Data(Vec<u8>),
     /// An option turned on or off on one side.
     OptionChanged {
+        /// The option.
         option: TelnetOption,
+        /// The side it changed on.
         side: Side,
+        /// Whether it is now on.
         enabled: bool,
     },
     /// The peer sent a Telnet command.
     Command(Command),
     /// A subnegotiation for a Passthrough option, its body as received with
     /// IAC IAC turned into a single 255.
-    Subnegotiation { option: TelnetOption, data: Vec<u8> },
+    Subnegotiation {
+        /// The Passthrough option.
+        option: TelnetOption,
+        /// The body, between `IAC SB option` and `IAC SE`.
+        data: Vec<u8>,
+    },
     /// The peer sent something malformed; the Core recovered and went on.
     Warning(Warning),
 }
@@ -40,10 +49,16 @@ pub enum Event {
 #[non_exhaustive]
 pub enum Error {
     /// A subnegotiation was to be sent for an option that is off on both sides.
-    OptionNotEnabled { option: TelnetOption },
+    OptionNotEnabled {
+        /// The option.
+        option: TelnetOption,
+    },
     /// A subnegotiation was to be sent for an option that is not a
     /// Passthrough option, whose subnegotiations the Core handles itself.
-    NotPassthrough { option: TelnetOption },
+    NotPassthrough {
+        /// The option.
+        option: TelnetOption,
+    },
 }
 
 impl std::fmt::Display for Error {
@@ -135,14 +150,30 @@ pub enum EndOfLine {
 #[non_exhaustive]
 pub enum Warning {
     /// `IAC byte` inside a subnegotiation, where `byte` is neither SE nor IAC.
-    MalformedSubnegotiation { option: TelnetOption, byte: u8 },
+    MalformedSubnegotiation {
+        /// The option being subnegotiated.
+        option: TelnetOption,
+        /// The byte after IAC.
+        byte: u8,
+    },
     /// A subnegotiation longer than the Core keeps; the rest was discarded.
-    SubnegotiationTruncated { option: TelnetOption },
+    SubnegotiationTruncated {
+        /// The option being subnegotiated.
+        option: TelnetOption,
+    },
     /// The peer answered our DONT with WILL, or our WONT with DO.
-    NoncompliantAnswer { option: TelnetOption, side: Side },
+    NoncompliantAnswer {
+        /// The option.
+        option: TelnetOption,
+        /// The side the answer was about.
+        side: Side,
+    },
     /// `IAC byte` outside a subnegotiation, where `byte` is not a command
     /// the Core knows: SE, or anything below 240.
-    UnknownCommand { byte: u8 },
+    UnknownCommand {
+        /// The byte after IAC.
+        byte: u8,
+    },
 }
 
 /// A Telnet option code.

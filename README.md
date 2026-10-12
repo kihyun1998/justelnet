@@ -28,6 +28,51 @@
 | [`justelnet`](justelnet) | Telnet client for tokio: a Driver that binds a Core to an async stream and owns every timeout. |
 | [`justelnet-expect`](justelnet-expect) | Expect-style automation: wait for patterns in the incoming data. |
 
+## Getting started
+
+For a terminal or your own event loop, depend on `justelnet`; to script a
+login and commands, add `justelnet-expect`. Both run on tokio:
+
+```sh
+cargo add justelnet justelnet-expect
+cargo add tokio --features macros,rt-multi-thread
+```
+
+Log in to a device and run one command:
+
+```rust,no_run
+use std::time::Duration;
+
+use justelnet::Client;
+use justelnet::core::OptionPolicy;
+use justelnet_expect::Expect;
+use justelnet_expect::regex::bytes::Regex;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let secs = Duration::from_secs;
+    let client = Client::connect("192.0.2.1:23", OptionPolicy::default(), secs(5)).await?;
+    let mut s = Expect::new(client);
+    // A prompt anchored to the end of the data received so far.
+    let prompt = Regex::new(r"\n\S+[#>] ?$")?;
+
+    s.expect("Username: ", secs(10)).await?;
+    s.send_line("admin").await?;
+    s.expect("Password: ", secs(10)).await?;
+    s.send_line("secret").await?;
+    s.expect(&prompt, secs(10)).await?;
+
+    s.send_line("show version").await?;
+    let output = s.expect(&prompt, secs(10)).await?;
+    println!("{}", output.before_lossy());
+    Ok(())
+}
+```
+
+The crate documentation of [`justelnet`](https://docs.rs/justelnet) and
+[`justelnet-expect`](https://docs.rs/justelnet-expect) covers the event loop,
+option policies, `--More--` paging and non-UTF-8 prompts.
+
 ## Design
 
 The Core holds one connection's Telnet state and performs no I/O. The caller
