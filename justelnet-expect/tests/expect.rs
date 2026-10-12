@@ -427,6 +427,147 @@ async fn by_default_a_wait_keeps_the_last_mebibyte() {
     assert_eq!(justelnet_expect::DEFAULT_BUFFER_LIMIT, 1 << 20);
 }
 
+/// Writes each chunk as its own read, a millisecond apart.
+async fn write_reads(device: &mut DuplexStream, chunks: &[&[u8]]) {
+    for chunk in chunks {
+        device.write_all(chunk).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_literal_split_at_any_point_across_reads_matches() {
+    let prompt = b"Password: ";
+    for split in 1..prompt.len() {
+        let (mut s, mut device) = session();
+        let first = [&b"\r\nUser OK\r\n"[..], &prompt[..split]].concat();
+        let reads = [&first[..], &prompt[split..]];
+
+        let (m, ()) = tokio::join!(
+            s.expect("Password: ", SECS_5),
+            write_reads(&mut device, &reads)
+        );
+
+        assert_match(&m.unwrap(), 0, b"\r\nUser OK\r\n", b"Password: ");
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_literal_split_across_reads_matches_after_the_limit_drops_bytes() {
+    let (mut s, mut device) = session();
+    s.set_buffer_limit(16);
+
+    let (m, ()) = tokio::join!(
+        s.expect("R1#", SECS_5),
+        write_reads(&mut device, &[b"0123456789\r\n", b"abcdefghij\r\nR1", b"#"])
+    );
+
+    assert_match(&m.unwrap(), 0, b"\nabcdefghij\r\n", b"R1#");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_literal_split_across_reads_still_wins_over_a_later_regex() {
+    let (mut s, mut device) = session();
+    let error = Regex::new(r"% \w+").unwrap();
+    let patterns = [Pattern::from(&error), Pattern::from("Username: ")];
+
+    let (m, ()) = tokio::join!(
+        s.expect_any(&patterns, SECS_5),
+        write_reads(&mut device, &[b"\r\nUser", b"name: % Bad"])
+    );
+
+    assert_match(&m.unwrap(), 1, b"\r\n", b"Username: ");
+    assert_eq!(s.into_inner().1, b"% Bad");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_literal_split_across_reads_ties_with_a_regex_by_list_order() {
+    let r1 = Regex::new("R1").unwrap();
+    for (patterns, index, matched, rest) in [
+        (
+            [Pattern::from(&r1), Pattern::from("R1>")],
+            0,
+            &b"R1"[..],
+            &b">"[..],
+        ),
+        ([Pattern::from("R1>"), Pattern::from(&r1)], 0, b"R1>", b""),
+    ] {
+        let (mut s, mut device) = session();
+
+        let (m, ()) = tokio::join!(
+            s.expect_any(&patterns, SECS_5),
+            write_reads(&mut device, &[b"\r\nR", b"1>"])
+        );
+
+        assert_match(&m.unwrap(), index, b"\r\n", matched);
+        assert_eq!(s.into_inner().1, rest);
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_session_shows_only_the_bytes_it_keeps() {
+    let (mut s, mut device) = session();
+    s.set_buffer_limit(16);
+    device.write_all(b"0123456789abcdefghij").await.unwrap();
+    let result = s.expect("#", SECS_5).await;
+    assert!(matches!(result, Err(Error::Timeout { .. })), "{result:?}");
+
+    let shown = format!("{s:?}");
+
+    assert!(
+        shown.contains(&format!("buffer: {:?}, ", b"456789abcdefghij")),
+        "{shown}"
+    );
+    assert!(!shown.contains("head"), "{shown}");
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_next_wait_searches_what_the_last_one_left_from_its_start() {
+    let (mut s, mut device) = session();
+    let (result, ()) = tokio::join!(
+        s.expect("#", SECS_5),
+        write_reads(&mut device, &[b"R1>show", b" version"])
+    );
+    assert!(matches!(result, Err(Error::Timeout { .. })), "{result:?}");
+
+    let m = s.expect(">", SECS_5).await.unwrap();
+
+    assert_match(&m, 0, b"R1", b">");
+}
+
+#[tokio::test(start_paused = true)]
+async fn after_many_reads_past_the_limit_only_the_newest_bytes_are_seen() {
+    let (mut s, mut device) = session();
+    s.set_buffer_limit(8);
+    let lines: Vec<Vec<u8>> = (10..40)
+        .map(|i| format!("line {i}\n").into_bytes())
+        .collect();
+    let lines: Vec<&[u8]> = lines.iter().map(Vec::as_slice).collect();
+
+    let (result, ()) = tokio::join!(s.expect("#", SECS_5), write_reads(&mut device, &lines));
+    match result {
+        Err(Error::Timeout { buffer }) => assert_eq!(buffer, b"line 39\n"),
+        other => panic!("expected a timeout, got {other:?}"),
+    }
+
+    device.write_all(b"R1>").await.unwrap();
+    let m = s.expect("R1>", SECS_5).await.unwrap();
+
+    assert_match(&m, 0, b"e 39\n", b"R1>");
+    assert_eq!(s.into_inner().1, b"");
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_buffer_handed_back_holds_only_the_newest_bytes() {
+    let (mut s, mut device) = session();
+    s.set_buffer_limit(16);
+    device.write_all(b"0123456789abcdefghij").await.unwrap();
+    let result = s.expect("#", SECS_5).await;
+    assert!(matches!(result, Err(Error::Timeout { .. })), "{result:?}");
+
+    assert_eq!(s.into_inner().1, b"456789abcdefghij");
+}
+
 #[tokio::test(start_paused = true)]
 async fn lowering_the_limit_trims_what_is_buffered() {
     let (mut s, mut device) = session();
