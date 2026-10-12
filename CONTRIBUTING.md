@@ -39,6 +39,6 @@ Set `JUSTELNET_E2E_RECORDING=<file>` to keep the bytes each side sent. The `e2e`
 
 Each crate keeps its own `CHANGELOG.md` (`justelnet-core/`, `justelnet/`, `justelnet-expect/`), in the [Keep a Changelog 2.0.0](https://keepachangelog.com/en/2.0.0/) format. A pull request that changes what a crate does or exposes adds a line under that crate's `## [Unreleased]`, in the type that fits: Added, Changed, Deprecated, Removed, Fixed or Security. A breaking change keeps its type and starts with `**Breaking:**`. Changes the crate's users do not notice, such as tests, CI or internal refactoring, are left out.
 
-- A breaking change cascades the way [#12](https://github.com/kihyun1998/justelnet/issues/12) set it: `justelnet` re-exports `justelnet-core`, and `justelnet-expect` exposes `justelnet` types. So a break in `justelnet-core` is written in `justelnet`'s and `justelnet-expect`'s changelogs too, and a break in `justelnet` in `justelnet-expect`'s, each as the effect that crate's users see.
+- A breaking change cascades as [README.md](README.md#versioning) sets out: `justelnet` re-exports `justelnet-core`, and `justelnet-expect` exposes `justelnet` types. So a break in `justelnet-core` is written in `justelnet`'s and `justelnet-expect`'s changelogs too, and a break in `justelnet` in `justelnet-expect`'s, each as the effect that crate's users see.
 - A raised MSRV goes under `Changed` in all three, since they share one MSRV.
 - Entries are written by hand; nothing generates or checks them in CI. `RELEASING.md` checks them before a publish.
