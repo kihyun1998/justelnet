@@ -16,9 +16,9 @@
   <img alt="License: MIT OR Apache-2.0" src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue">
 </p>
 
-> **Status:** early development, not yet published to crates.io. The Core
-> and the tokio Driver are complete; the Expect session is in progress (see
-> the [0.1 map](https://github.com/kihyun1998/justelnet/issues/1)).
+> **Status:** early development, not yet published to crates.io. The Core,
+> the tokio Driver and the Expect session are complete for 0.1 (see the
+> [0.1 map](https://github.com/kihyun1998/justelnet/issues/1)).
 
 ## Crates
 
