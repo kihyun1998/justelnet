@@ -1,6 +1,6 @@
 [package]
 name = "justelnet-expect"
-version = "0.1.0"
+version = "0.1.1"
 description = "Expect-style automation over a justelnet client."
 edition.workspace = true
 rust-version.workspace = true
