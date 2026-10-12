@@ -72,7 +72,8 @@ The three crates are versioned independently and follow
 All three crates share one MSRV: a Rust release at least six months old,
 declared as `rust-version` in each `Cargo.toml`, shown by the badge above and
 checked in CI. Raising it is not a breaking change, but it happens only in a
-minor release, never a patch, and is noted in each crate's changelog.
+minor release, never a patch, and is noted in each crate's changelog. Before
+1.0 these terms map onto `0.y.z` as [below](#before-10).
 
 ### Breaking changes
 
@@ -89,6 +90,18 @@ Event, a Command, an error kind or a setting is therefore a minor release, and a
 variants, so adding a field to an existing variant is a breaking change; for
 `Event::OptionChanged` that is deliberate, since `option`, `side` and `enabled`
 are a closed set and a pattern may name them all.
+
+### Before 1.0
+
+Until a crate reaches 1.0, its versions read as Cargo reads `0.y.z`, where
+[only the left-most non-zero component is incompatible](https://doc.rust-lang.org/cargo/reference/semver.html):
+
+- A breaking change bumps `0.y` (0.1 to 0.2), and the cascade above applies to
+  these bumps. An additive change or a fix bumps `0.y.z` (0.1.0 to 0.1.1):
+  that is what "a minor release" means before 1.0.
+- A raised MSRV bumps `0.y.z`: the Cargo book advises treating it as a minor
+  change, and before 1.0 a minor change is `0.y.z`. Since `0.y.z` has no
+  separate patch level, "never in a patch release" takes effect from 1.0.
 
 ### 1.0
 
