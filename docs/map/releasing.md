@@ -26,3 +26,9 @@ The checklist covers the gates plus the two packaging checks, not version bumps 
 2.0.0 advises a product split into separate libraries to keep one central changelog besides the per-component ones. There is none here: the three crates are versioned independently (#5), so no release spans them all, and most users read only `justelnet`'s. Per-crate files only and 2.0.0 over 1.1.0 are the maintainer's calls, made on 2026-10-12 with that advice in front of them, and theirs to reverse.
 
 The `[Unreleased]` heading has no link reference: nothing is tagged yet, and how per-crate tags are named belongs with the publish procedure, which the checklist leaves out.
+
+## The versioning policy
+
+#12's MSRV, semver and 1.0 policy is stated in the README's `## Versioning`, the readme of all three crates, so crates.io shows it on each; #12 keeps the reasoning. Its text gives no MSRV number: `rust-version` and the badge hold the value, and the badge links to the section. It says the `#[non_exhaustive]` marking is on the enums, not their variants, so a new field in a variant is breaking; every public variant's fields are exhaustive (checked 2026-10-12), and `Event::OptionChanged` is named as the deliberate case (see `option-negotiation.md`). The README as its home, all of #12 including the 1.0 bar, and no number in the text are the maintainer's calls, made on 2026-10-12 in #68's triage; they are theirs to reverse.
+
+In-page links such as `#versioning` work on crates.io as on GitHub: crates.io renders heading ids as `user-content-*` and keeps `href="#…"` links, as tokio's README shows (its 1.47.1 readme page, read 2026-10-12).

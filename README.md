@@ -12,7 +12,7 @@
 
 <p align="center">
   <a href="https://github.com/kihyun1998/justelnet/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/kihyun1998/justelnet/actions/workflows/ci.yml/badge.svg"></a>
-  <img alt="MSRV 1.94" src="https://img.shields.io/badge/MSRV-1.94-blue">
+  <a href="#versioning"><img alt="MSRV 1.94" src="https://img.shields.io/badge/MSRV-1.94-blue"></a>
   <img alt="License: MIT OR Apache-2.0" src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue">
 </p>
 
@@ -60,6 +60,42 @@ while let Some(event) = core.poll_event() {
 // DO SGA answered our own WILL SGA, so it needs no reply.
 core.poll_transmit(&mut outgoing);
 ```
+
+## Versioning
+
+The three crates are versioned independently and follow
+[Semantic Versioning](https://semver.org). The policy below was decided in
+[#12](https://github.com/kihyun1998/justelnet/issues/12), which has the reasoning.
+
+### Minimum supported Rust version
+
+All three crates share one MSRV: a Rust release at least six months old,
+declared as `rust-version` in each `Cargo.toml`, shown by the badge above and
+checked in CI. Raising it is not a breaking change, but it happens only in a
+minor release, never a patch, and is noted in each crate's changelog.
+
+### Breaking changes
+
+- `justelnet` re-exports `justelnet-core`, so a breaking release of the core is
+  a breaking release of `justelnet`.
+- `justelnet-expect` exposes `justelnet` types, so a breaking release of
+  `justelnet` is a breaking release of `justelnet-expect`.
+- Non-breaking releases do not cascade.
+
+Public enums are `#[non_exhaustive]`, and configuration such as the Option
+policy has private fields and is built with a builder or `Default`. Adding an
+Event, a Command, an error kind or a setting is therefore a minor release, and a
+`match` on these needs a `_` arm. The marking is on the enums, not on their
+variants, so adding a field to an existing variant is a breaking change; for
+`Event::OptionChanged` that is deliberate, since `option`, `side` and `enabled`
+are a closed set and a pattern may name them all.
+
+### 1.0
+
+`justelnet-core` reaches 1.0 first, once the terminal client that is
+justelnet's first consumer has shipped on `justelnet` and the Core has gone
+about three months without a breaking change. `justelnet` and
+`justelnet-expect` reach 1.0 separately, by the same bar.
 
 ## License
 
