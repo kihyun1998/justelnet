@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `Expect::set_log` hands the data a session sends and receives to a
+  callback, as `Logged::Sent`, `Logged::SentSecret` or `Logged::Received`.
+- `Expect::send_secret_line` sends a line as `send_line` does and logs only
+  that a secret was sent.
+
 ### Fixed
 
 - A wait whose timeout is too large to add to the current time, such as

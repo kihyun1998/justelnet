@@ -67,6 +67,37 @@
 //! rather than for its text, or, on a device known to echo, drop `before`
 //! through its first line end.
 //!
+//! # Logging a session
+//!
+//! [`Expect::set_log`] hands each line sent and each piece of data received
+//! to a callback, in the order they happen, so a failed automation can be
+//! read back. A password sent with [`Expect::send_secret_line`] is logged
+//! only as having been sent; a device that echoed it would send it back, and
+//! that would be logged as received data, which is not masked:
+//!
+//! ```no_run
+//! # use std::io::Write;
+//! # use std::time::Duration;
+//! # use justelnet_expect::{Expect, Logged};
+//! # async fn login(s: &mut Expect<tokio::net::TcpStream>) -> Result<(), Box<dyn std::error::Error>> {
+//! # let secs = Duration::from_secs;
+//! let mut file = std::fs::File::create("session.log")?;
+//! s.set_log(move |logged| {
+//!     let line = match logged {
+//!         Logged::Sent(bytes) => format!("> {}\n", String::from_utf8_lossy(bytes).trim_end()),
+//!         Logged::SentSecret => "> ********\n".to_owned(),
+//!         Logged::Received(bytes) => String::from_utf8_lossy(bytes).into_owned(),
+//!         _ => return,
+//!     };
+//!     // A failed write loses this entry; the session goes on.
+//!     let _ = file.write_all(line.as_bytes());
+//! });
+//! s.expect("Password: ", secs(10)).await?;
+//! s.send_secret_line("secret").await?;
+//! # Ok(())
+//! # }
+//! ```
+//!
 //! # Long output and `--More--`
 //!
 //! A device that pages its output stops at a marker such as `--More--` and
@@ -114,6 +145,7 @@
 
 use std::borrow::Cow;
 use std::fmt;
+use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
 use justelnet::core::{self, Command};
@@ -258,8 +290,34 @@ impl From<justelnet::Error> for Error {
     }
 }
 
+/// `line` followed by Enter, a CR, which the client turns into the policy's
+/// end of line.
+fn with_enter(line: &[u8]) -> Vec<u8> {
+    let mut data = line.to_vec();
+    data.push(b'\r');
+    data
+}
+
 /// How many unmatched bytes a session keeps unless told otherwise: 1 MiB.
 pub const DEFAULT_BUFFER_LIMIT: usize = 1 << 20;
+
+/// What a session hands to its log (see [`Expect::set_log`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Logged<'a> {
+    /// Bytes sent with [`Expect::send_line`], the line and its CR as given to
+    /// the client, or with [`Expect::send_raw`].
+    Sent(&'a [u8]),
+    /// A line was sent with [`Expect::send_secret_line`]; its bytes are not
+    /// logged.
+    SentSecret,
+    /// Data received from the peer, with Telnet control removed, as a wait
+    /// reads it.
+    Received(&'a [u8]),
+}
+
+/// A session's log callback.
+type Log = Mutex<Box<dyn FnMut(Logged<'_>) + Send>>;
 
 /// A client wrapped for automation, with the data no wait has consumed yet.
 pub struct Expect<S> {
@@ -269,6 +327,7 @@ pub struct Expect<S> {
     buffer: Vec<u8>,
     head: usize,
     limit: usize,
+    log: Option<Log>,
 }
 
 /// Shows the client, the unmatched data and the limit.
@@ -287,6 +346,14 @@ impl<S> Expect<S> {
     fn unmatched(&self) -> &[u8] {
         &self.buffer[self.head..]
     }
+
+    /// Hands `logged` to the log, if one is set.
+    fn record(&mut self, logged: Logged<'_>) {
+        if let Some(log) = &mut self.log {
+            let log = log.get_mut().unwrap_or_else(PoisonError::into_inner);
+            log(logged);
+        }
+    }
 }
 
 impl<S> Expect<S>
@@ -301,7 +368,17 @@ where
             buffer: Vec::new(),
             head: 0,
             limit: DEFAULT_BUFFER_LIMIT,
+            log: None,
         }
+    }
+
+    /// Hands what the session sends and receives to `log`, replacing any
+    /// log set before: lines and raw bytes sent, as [`Logged::Sent`] (or
+    /// [`Logged::SentSecret`]), and data received, as [`Logged::Received`]
+    /// when a wait reads it. Telnet commands and other Events are not
+    /// logged.
+    pub fn set_log(&mut self, log: impl FnMut(Logged<'_>) + Send + 'static) {
+        self.log = Some(Mutex::new(Box::new(log)));
     }
 
     /// Keeps at most `bytes` of unmatched data, dropping the oldest first,
@@ -351,14 +428,25 @@ where
     /// Sends `line` followed by Enter, which the client turns into the
     /// policy's end of line.
     pub async fn send_line(&mut self, line: impl AsRef<[u8]>) -> Result<(), Error> {
-        let mut data = line.as_ref().to_vec();
-        data.push(b'\r');
-        Ok(self.client.send_data(&data).await?)
+        let data = with_enter(line.as_ref());
+        self.client.send_data(&data).await?;
+        self.record(Logged::Sent(&data));
+        Ok(())
+    }
+
+    /// Sends `line` as [`Expect::send_line`] does, but logs only that a
+    /// secret was sent, as [`Logged::SentSecret`].
+    pub async fn send_secret_line(&mut self, line: impl AsRef<[u8]>) -> Result<(), Error> {
+        self.client.send_data(&with_enter(line.as_ref())).await?;
+        self.record(Logged::SentSecret);
+        Ok(())
     }
 
     /// Sends bytes as they are, with only IAC doubled.
     pub async fn send_raw(&mut self, data: &[u8]) -> Result<(), Error> {
-        Ok(self.client.send_raw(data).await?)
+        self.client.send_raw(data).await?;
+        self.record(Logged::Sent(data));
+        Ok(())
     }
 
     /// Sends `IAC <command>`.
@@ -399,6 +487,7 @@ where
             };
             match event {
                 Ok(Event::Core(core::Event::Data(data))) => {
+                    self.record(Logged::Received(&data));
                     self.append(&data);
                     let dropped = self.trim();
                     for start in &mut from {
