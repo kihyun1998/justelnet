@@ -632,6 +632,38 @@ fn errors_describe_themselves() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_timeout_too_large_to_add_still_matches_what_arrived() {
+    let (mut s, mut device) = session();
+    device.write_all(b"R1#").await.unwrap();
+
+    let m = s.expect("#", Duration::MAX).await.unwrap();
+
+    assert_match(&m, 0, b"R1", b"#");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_timeout_too_large_to_add_waits_until_the_close() {
+    let (mut s, mut device) = session();
+    let start = tokio::time::Instant::now();
+    let a_year = Duration::from_secs(365 * 24 * 60 * 60);
+
+    let ((result, waited), ()) = tokio::join!(
+        async { (s.expect("#", Duration::MAX).await, start.elapsed()) },
+        async {
+            tokio::time::sleep(a_year).await;
+            device.write_all(b"R1>").await.unwrap();
+            drop(device);
+        }
+    );
+
+    assert!(
+        matches!(result, Err(Error::Closed { ref buffer }) if buffer == b"R1>"),
+        "{result:?}"
+    );
+    assert_eq!(waited, a_year);
+}
+
+#[tokio::test(start_paused = true)]
 async fn the_timeout_counts_from_the_start_of_the_wait() {
     let (mut s, mut device) = session();
     let start = tokio::time::Instant::now();

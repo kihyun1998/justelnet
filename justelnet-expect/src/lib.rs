@@ -294,7 +294,9 @@ where
     /// Waits up to `timeout` for `pattern` in the buffered and incoming data.
     ///
     /// Data after the match stays buffered for the next wait. Events other
-    /// than Data are skipped. On a timeout the buffer is kept.
+    /// than Data are skipped. On a timeout the buffer is kept. A `timeout`
+    /// too large to add to the current time, such as [`Duration::MAX`], means
+    /// no deadline.
     pub async fn expect(
         &mut self,
         pattern: impl Into<Pattern>,
@@ -309,7 +311,8 @@ where
     /// The earliest match in the data wins, and of patterns matching at the
     /// same position, the one listed first. Literals and regexes mix as
     /// [`Pattern`]s: `&[Pattern::from("% Login invalid"), Pattern::from(&prompt)]`.
-    /// With no patterns, nothing matches and the wait ends at the timeout.
+    /// With no patterns, nothing matches, so the wait ends only at
+    /// the timeout, a close or a client error.
     /// Otherwise as [`Expect::expect`].
     pub async fn expect_any<P>(&mut self, patterns: &[P], timeout: Duration) -> Result<Match, Error>
     where
@@ -349,32 +352,40 @@ where
     }
 
     async fn wait(&mut self, patterns: &[Pattern], timeout: Duration) -> Result<Match, Error> {
-        let deadline = Instant::now() + timeout;
+        let deadline = Instant::now().checked_add(timeout);
         let mut from = vec![0; patterns.len()];
         loop {
             if let Some(m) = self.take_match(patterns, &mut from) {
                 return Ok(m);
             }
-            match tokio::time::timeout_at(deadline, self.client.next_event()).await {
-                Err(_) => {
-                    return Err(Error::Timeout {
-                        buffer: self.unmatched().to_vec(),
-                    });
+            let event = match deadline {
+                Some(deadline) => {
+                    match tokio::time::timeout_at(deadline, self.client.next_event()).await {
+                        Ok(event) => event,
+                        Err(_) => {
+                            return Err(Error::Timeout {
+                                buffer: self.unmatched().to_vec(),
+                            });
+                        }
+                    }
                 }
-                Ok(Ok(Event::Core(core::Event::Data(data)))) => {
+                None => self.client.next_event().await,
+            };
+            match event {
+                Ok(Event::Core(core::Event::Data(data))) => {
                     self.append(&data);
                     let dropped = self.trim();
                     for start in &mut from {
                         *start = start.saturating_sub(dropped);
                     }
                 }
-                Ok(Ok(Event::Closed)) => {
+                Ok(Event::Closed) => {
                     return Err(Error::Closed {
                         buffer: self.unmatched().to_vec(),
                     });
                 }
-                Ok(Ok(_)) => {}
-                Ok(Err(e)) => return Err(e.into()),
+                Ok(_) => {}
+                Err(e) => return Err(e.into()),
             }
         }
     }
