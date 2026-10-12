@@ -41,6 +41,19 @@
 //! encoding, such as a hostname in EUC-KR, use `(?-u:\S)`, which matches any
 //! byte that is not ASCII whitespace.
 //!
+//! # Terminal types and escape sequences
+//!
+//! For automation, keep the Option policy's default terminal type, `UNKNOWN`.
+//! A terminal type such as `xterm` or `vt100` makes a shell such as bash send
+//! escape sequences: bracketed paste (`ESC[?2004h` before the prompt,
+//! `ESC[?2004l` at the start of a command's output) and, for `xterm`, a
+//! window title (`ESC]0;…BEL`). They arrive ahead of the prompt, so a prompt
+//! regex anchored to the end of the data still matches, but they are part of
+//! the result: the output's in [`Match::before`], and the prompt's in
+//! [`Match::matched`] when the regex's `\S+` covers them, as the one above
+//! does. Removing them, for example every CSI and OSC sequence, is left to the
+//! caller.
+//!
 //! # Long output and `--More--`
 //!
 //! A device that pages its output stops at a marker such as `--More--` and
