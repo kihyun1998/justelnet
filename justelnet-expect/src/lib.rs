@@ -78,6 +78,7 @@
 //! and drops the oldest bytes past it, so one wait returns at most that much in
 //! [`Match::before`]. Paging keeps each wait short;
 //! [`Expect::set_buffer_limit`] raises the limit for one long output.
+#![warn(missing_docs)]
 #![doc(
     html_logo_url = "https://raw.githubusercontent.com/kihyun1998/justelnet/main/logo/icons/justelnet-icon-light-128.png"
 )]
@@ -184,10 +185,16 @@ impl Match {
 pub enum Error {
     /// No pattern matched within the timeout. `buffer` is the unmatched data,
     /// which the session keeps for the next wait.
-    Timeout { buffer: Vec<u8> },
+    Timeout {
+        /// The unmatched data.
+        buffer: Vec<u8>,
+    },
     /// The peer closed the connection during the wait. `buffer` is the
     /// unmatched data.
-    Closed { buffer: Vec<u8> },
+    Closed {
+        /// The unmatched data.
+        buffer: Vec<u8>,
+    },
     /// The client failed.
     Client(justelnet::Error),
 }

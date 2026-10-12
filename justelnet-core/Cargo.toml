@@ -1,12 +1,14 @@
 [package]
 name = "justelnet-core"
-version = "0.0.0"
+version = "0.1.0"
 description = "Sans-IO Telnet protocol core: bytes in, events and outgoing bytes out."
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 readme.workspace = true
+keywords = ["telnet", "protocol", "sans-io", "rfc854", "network"]
+categories = ["network-programming", "parser-implementations"]
 
 [dependencies]
 

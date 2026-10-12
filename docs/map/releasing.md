@@ -17,7 +17,7 @@ The checklist failed on main on 2026-10-07 until #55 gave that test its own copy
 
 ## Calls
 
-The checklist covers the gates plus the two packaging checks, not version bumps or the publish order; that scope is the maintainer's call, made on 2026-10-07 over a gates-only list and a full publish procedure. On 2026-10-12 (#56) they widened it by one item, the changelog entry of each crate being published; version bumps and the publish order stay out. It lives in `RELEASING.md` at the root rather than in `CONTRIBUTING.md` or under `docs/`, also the maintainer's call that day. Both are theirs to reverse.
+The checklist covers the gates plus the two packaging checks, not version bumps or the publish order; that scope is the maintainer's call, made on 2026-10-07 over a gates-only list and a full publish procedure. On 2026-10-12 (#56) they widened it by one item, the changelog entry of each crate being published. Later that day, preparing 0.1, they widened it again to the publish procedure, with a tag per crate named `<crate>-v<version>`, chosen over one tag for all three, which would not fit once the versions part. Publishing is by tag through the `Release` workflow with crates.io Trusted Publishing, and 0.1.0 by hand, chosen over a long-lived `CARGO_REGISTRY_TOKEN` in a repository secret and over publishing by hand every time. Both are theirs to reverse. It lives in `RELEASING.md` at the root rather than in `CONTRIBUTING.md` or under `docs/`, also the maintainer's call that day. Both are theirs to reverse.
 
 ## Changelogs
 
@@ -25,7 +25,7 @@ The checklist covers the gates plus the two packaging checks, not version bumps 
 
 2.0.0 advises a product split into separate libraries to keep one central changelog besides the per-component ones. There is none here: the three crates are versioned independently (#5), so no release spans them all, and most users read only `justelnet`'s. Per-crate files only and 2.0.0 over 1.1.0 are the maintainer's calls, made on 2026-10-12 with that advice in front of them, and theirs to reverse.
 
-The `[Unreleased]` heading has no link reference: nothing is tagged yet, and how per-crate tags are named belongs with the publish procedure, which the checklist leaves out.
+Each changelog's link references point at its crate's tags (`<crate>-v<version>`), which the publish procedure creates, so they resolve only once a version is tagged.
 
 ## The versioning policy
 
@@ -38,3 +38,13 @@ In-page links such as `#versioning` work on crates.io as on GitHub: crates.io re
 The policy in #12 speaks in 1.x terms; the README's `### Before 1.0` maps it onto `0.y.z` the way Cargo does. The Cargo book's SemVer chapter (read 2026-10-12) says `0.y.z` can treat y as major and z as minor, "only changes in the left-most non-zero component are considered incompatible", and that a raised MSRV is "possibly-breaking" but "generally recommended to treat this as a minor change". Breaking changes therefore bump `0.y`, additions and fixes bump `0.y.z`, and so does an MSRV raise, with #12's "never in a patch" taking effect at 1.0, since `0.y.z` has no separate patch level.
 
 Raising the MSRV with `0.y.z` is the maintainer's call, made on 2026-10-12 in #71's triage and theirs to reverse. They chose it over bumping `0.y`, which is safer for a single crate but costs more here: through #12's cascade, and with one MSRV shared by all three crates, every raise would become a breaking release of all three. What softens a raise in `0.y.z` is the depending side's resolver, not this workspace's: with `resolver.incompatible-rust-versions = fallback`, the default from resolver 3 (edition 2024, Rust 1.84+), Cargo prefers a dependency version whose `rust-version` the depending package supports, so such a package stays on the previous `0.y.z` (Cargo book, resolver chapter, read 2026-10-12). It is a preference made when resolving, not a guarantee: an older resolver, or a lockfile update that asks for the new version, still picks it.
+
+## Publishing by tag
+
+crates.io's Trusted Publishing (its docs page source, `svelte/src/routes/docs/trusted-publishing/+page.svelte` in rust-lang/crates.io, read 2026-10-12) gives a GitHub workflow with `id-token: write` a 30-minute token through `rust-lang/crates-io-auth-action@v1`, and is configured per crate with the repository, the workflow filename and an optional environment. It requires the crate to exist already ("initial publish requires an API token"), which is why 0.1.0 goes out by hand.
+
+`release.yml` publishes one crate per tag. Tags are pushed one at a time in dependency order rather than all at once: three tag runs in parallel could publish `justelnet` before `justelnet-core` is on crates.io, and a workflow `concurrency` group would not queue them, since it keeps one pending run and cancels the rest. A tag whose version is already on crates.io passes without publishing, so the 0.1.0 tags pushed after the manual publish exercise the workflow without uploading. The `release` environment is named in both the workflow and the crates.io configuration; protection rules on it, such as a required reviewer, are the maintainer's to add in the repository settings.
+
+## Publishing 0.1
+
+Measured on 2026-10-12 with cargo 1.96: `cargo publish --workspace --dry-run` packages, verifies and would upload all three crates in dependency order before any of them is on crates.io, as `cargo package --workspace` does. The names `justelnet`, `justelnet-core` and `justelnet-expect` were free on crates.io that day (its API answered 404 for each). The keywords and categories in the manifests are the maintainer's choice of that day; the category slugs were checked against crates.io's list.

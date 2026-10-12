@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-12
+
 ### Added
 
 - Initial release: Sans-IO Telnet protocol core: bytes in, events and outgoing bytes out.
+
+[Unreleased]: https://github.com/kihyun1998/justelnet/compare/justelnet-core-v0.1.0...HEAD
+[0.1.0]: https://github.com/kihyun1998/justelnet/releases/tag/justelnet-core-v0.1.0
