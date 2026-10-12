@@ -33,6 +33,10 @@ On the same commit:
 
   `cargo package` does not build tests, so it passes even when a packaged test would not compile from the published crate.
 
+## Required: the changelogs
+
+- [ ] Each crate being published has a section for the version being released in its `CHANGELOG.md`, dated, moved out of `Unreleased`, and naming any raise of the MSRV (see [CONTRIBUTING.md](CONTRIBUTING.md#changelogs)).
+
 ## Not gates
 
 These do not block a release:
