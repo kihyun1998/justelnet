@@ -66,6 +66,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     s.send_line("show version").await?;
     let output = s.expect(&prompt, secs(10)).await?;
+    // `before` starts with the echoed command line (see the crate docs' "Echo").
     println!("{}", output.before_lossy());
     Ok(())
 }

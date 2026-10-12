@@ -32,6 +32,7 @@
 //!
 //! s.send_line("show version").await?;
 //! let output = s.expect(&prompt, secs(10)).await?;
+//! // `before` starts with the echoed command line (see "Echo" below).
 //! println!("{}", output.before_lossy());
 //! # Ok(())
 //! # }
@@ -53,6 +54,18 @@
 //! [`Match::matched`] when the regex's `\S+` covers them, as the one above
 //! does. Removing them, for example every CSI and OSC sequence, is left to the
 //! caller.
+//!
+//! # Echo
+//!
+//! A device that echoes sends a line back as it receives it, so the next
+//! wait's [`Match::before`] starts with that line, up to its first line end.
+//! A long line can come back altered: a shell may echo it as a horizontally
+//! scrolled view, a `<` and only its tail, so the echo cannot be matched
+//! against the text sent. Nor does the peer's ECHO option say whether a line
+//! is echoed: a login prompt can stop echoing the password while the option
+//! stays on. Two ways to work with it: wait for output the command computes
+//! rather than for its text, or, on a device known to echo, drop `before`
+//! through its first line end.
 //!
 //! # Long output and `--More--`
 //!
