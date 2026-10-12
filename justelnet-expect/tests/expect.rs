@@ -1,8 +1,8 @@
 //! The Expect session against a fake device on an in-memory duplex.
 //!
 //! Expected matches and buffers are the prototype's (`Expect` module of
-//! `prototypes/expect-api.PROTOTYPE.html` on `prototype/expect-api`), run on
-//! the same scenario steps.
+//! `docs/prototypes/expect-api.PROTOTYPE.html`), run on the same scenario
+//! steps.
 
 use std::time::Duration;
 
