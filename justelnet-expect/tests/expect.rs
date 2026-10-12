@@ -9,7 +9,7 @@ use std::time::Duration;
 use justelnet::core::{self, OptionPolicy, Side, TelnetOption};
 use justelnet::{Client, Event};
 use justelnet_expect::regex::bytes::Regex;
-use justelnet_expect::{Error, Expect, Match, Pattern};
+use justelnet_expect::{Error, Expect, Logged, Match, Pattern};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream, duplex};
 
 const SECS_5: Duration = Duration::from_secs(5);
@@ -713,4 +713,94 @@ async fn option_state_is_read_through_the_session() {
     s.expect("login: ", SECS_5).await.unwrap();
 
     assert!(s.client().is_enabled(TelnetOption::ECHO, Side::Remote));
+}
+
+/// What a session's log was given, owned, in order.
+#[derive(Debug, PartialEq)]
+enum Entry {
+    Sent(Vec<u8>),
+    SentSecret,
+    Received(Vec<u8>),
+}
+
+/// Sets a log on `s` that collects its entries.
+fn log_into(s: &mut Expect<DuplexStream>) -> std::sync::Arc<std::sync::Mutex<Vec<Entry>>> {
+    let entries = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let sink = entries.clone();
+    s.set_log(move |logged| {
+        let entry = match logged {
+            Logged::Sent(bytes) => Entry::Sent(bytes.to_vec()),
+            Logged::SentSecret => Entry::SentSecret,
+            Logged::Received(bytes) => Entry::Received(bytes.to_vec()),
+            other => panic!("unexpected {other:?}"),
+        };
+        sink.lock().unwrap().push(entry);
+    });
+    entries
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_logged_login_records_both_directions_but_not_the_secret() {
+    let (mut s, mut device) = session();
+    let log = log_into(&mut s);
+
+    device.write_all(b"Username: ").await.unwrap();
+    s.expect("Username: ", SECS_5).await.unwrap();
+    s.send_line("admin").await.unwrap();
+    device.write_all(b"Password: ").await.unwrap();
+    s.expect("Password: ", SECS_5).await.unwrap();
+    s.send_secret_line("s3cret").await.unwrap();
+    device.write_all(b"R1#").await.unwrap();
+    s.expect("#", SECS_5).await.unwrap();
+
+    assert_eq!(
+        *log.lock().unwrap(),
+        [
+            Entry::Received(b"Username: ".to_vec()),
+            Entry::Sent(b"admin\r".to_vec()),
+            Entry::Received(b"Password: ".to_vec()),
+            Entry::SentSecret,
+            Entry::Received(b"R1#".to_vec()),
+        ]
+    );
+    assert_eq!(received(&mut device).await, b"admin\r\ns3cret\r\n");
+}
+
+#[tokio::test(start_paused = true)]
+async fn raw_bytes_are_logged_and_telnet_commands_are_not() {
+    let (mut s, mut device) = session();
+    let log = log_into(&mut s);
+
+    s.send_raw(b"\x03").await.unwrap();
+    s.send_command(core::Command::AreYouThere).await.unwrap();
+
+    assert_eq!(*log.lock().unwrap(), [Entry::Sent(b"\x03".to_vec())]);
+    assert_eq!(received(&mut device).await, [0x03, 0xff, 0xf6]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn each_read_of_a_wait_is_logged_as_it_arrives() {
+    let (mut s, mut device) = session();
+    let log = log_into(&mut s);
+
+    let (m, ()) = tokio::join!(
+        s.expect("#", SECS_5),
+        write_reads(&mut device, &[b"show ", b"ver\r\nR1", b"#"])
+    );
+    m.unwrap();
+
+    assert_eq!(
+        *log.lock().unwrap(),
+        [
+            Entry::Received(b"show ".to_vec()),
+            Entry::Received(b"ver\r\nR1".to_vec()),
+            Entry::Received(b"#".to_vec()),
+        ]
+    );
+}
+
+#[test]
+fn a_session_stays_send_and_sync_with_a_log() {
+    fn send_and_sync<T: Send + Sync>() {}
+    send_and_sync::<Expect<DuplexStream>>();
 }
