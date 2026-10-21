@@ -17,7 +17,7 @@ The Core splits on x. A command byte (241–254: NOP through DONT, SB included) 
 
 The decision behind this (#6) calls keeping x "PuTTY's reading" and describes it as an undoubled 255; PuTTY's code in fact drops the 255. Keeping both is the maintainer's call, made on 2026-09-29 when shown that difference, over PuTTY's actual behaviour; it is theirs to reverse. `subnegotiation-malformed.txt` tells all three readings apart.
 
-`IAC SB` followed directly by `IAC SE` takes the 255 as the option code and SE as the first body byte, so everything up to the next `IAC SE` or `IAC <command>` is discarded as that subnegotiation, with no Warning. PuTTY and libtelnet read it the same way; netkit reads an empty subnegotiation.
+`IAC SB` followed directly by `IAC SE` takes the 255 as the option code and SE as the first body byte, so everything up to the next `IAC SE` or `IAC <command>` is discarded as that subnegotiation. PuTTY and libtelnet read it the same way; netkit reads an empty subnegotiation. Ended by `IAC SE`, it raises no Warning of its own (an undoubled 255 inside it, or a body past the size limit, warns as anywhere else). Ended by `IAC <command>`, it is a subnegotiation missing its SE like any other: a `MalformedSubnegotiation` Warning naming option 255, then the command. That Warning is the maintainer's call, made on 2026-10-22 over making option 255 a silent exception; it is theirs to reverse. `subnegotiation-malformed.txt` replays both endings.
 
 ## The size limit
 
