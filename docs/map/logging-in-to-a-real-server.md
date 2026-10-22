@@ -12,6 +12,8 @@ From 2.7 on, releases ship only as `.tar.gz`; there is no `.tar.xz`.
 
 The test lives in `justelnet-expect/tests/` as an ignored test, and the container under `ci/`, rather than in a separate workspace crate or as an example: the maintainer's call, made on 2026-10-07, and theirs to reverse.
 
+The test wraps its stream to record it, so it connects with a plain `TcpStream` and `Client::new` rather than `Client::connect`, and sets on the socket what `connect` sets: urgent data inline and no delay (see [driving a stream](driving-a-stream.md#connecting-by-address)). It reaches socket2 through a dev-dependency of `justelnet-expect`, already in the tree through `justelnet`. That is the maintainer's call, made on 2026-10-22 over a public function in `justelnet` that both `connect` and the test would call; it is theirs to reverse. The recording up to the login prompt held no Synch before this (six runs, see below), so the setting matches what the docs ask of a TCP caller rather than fixing a failure seen here.
+
 ## Traps in running it
 
 - telnetd does not listen by itself; it serves the socket inetd hands it on stdin (Debian's package depends on `inetutils-inetd | inet-superserver`). inetd is the container's main process, with `--foreground` (added in inetutils 2.7).
