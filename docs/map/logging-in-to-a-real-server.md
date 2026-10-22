@@ -14,6 +14,8 @@ The test lives in `justelnet-expect/tests/` as an ignored test, and the containe
 
 The test wraps its stream to record it, so it connects with a plain `TcpStream` and `Client::new` rather than `Client::connect`, and sets on the socket what `connect` sets: urgent data inline and no delay (see [driving a stream](driving-a-stream.md#connecting-by-address)). It reaches socket2 through a dev-dependency of `justelnet-expect`, already in the tree through `justelnet`. That is the maintainer's call, made on 2026-10-22 over a public function in `justelnet` that both `connect` and the test would call; it is theirs to reverse. The recording up to the login prompt held no Synch before this (six runs, see below), so the setting matches what the docs ask of a TCP caller rather than fixing a failure seen here.
 
+The account, its password and the shell prompt's regex default to the container's and can be overridden from the environment, so the same test logs in to another server by hand; the login and password prompts and the command it runs are not overridable, since the lab netkit telnetd matches them as they are. Run against the lab on 2026-10-22 with its account and prompt (`\n\[testuser@localhost ~\]\$ $`), it logged in, read `justelnet-42` and saw `Closed` in 0.6 s; a prompt override that never matches timed out waiting for the shell prompt. The lab's address and password stay out of the repository.
+
 ## Traps in running it
 
 - telnetd does not listen by itself; it serves the socket inetd hands it on stdin (Debian's package depends on `inetutils-inetd | inet-superserver`). inetd is the container's main process, with `--foreground` (added in inetutils 2.7).

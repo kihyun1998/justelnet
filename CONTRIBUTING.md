@@ -33,7 +33,7 @@ docker run -d --name telnetd --hostname e2e -p 127.0.0.1:2323:23 justelnet-telne
 JUSTELNET_E2E_ADDR=127.0.0.1:2323 cargo test -p justelnet-expect --test real_telnetd -- --ignored
 ```
 
-Set `JUSTELNET_E2E_RECORDING=<file>` to keep the bytes each side sent. The `e2e` job in the `CI` workflow runs it on every pull request, also with a wrong password, which must fail, and uploads those bytes as the `inetutils-telnetd-recording` artifact.
+Set `JUSTELNET_E2E_RECORDING=<file>` to keep the bytes each side sent. To log in to another server, set `JUSTELNET_E2E_USER`, `JUSTELNET_E2E_PASSWORD` and `JUSTELNET_E2E_SHELL_PROMPT` (a regex) for its account and prompt. The `e2e` job in the `CI` workflow runs it on every pull request, also with a wrong password, which must fail, and uploads those bytes as the `inetutils-telnetd-recording` artifact.
 
 ## Changelogs
 
