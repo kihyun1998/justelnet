@@ -27,3 +27,16 @@ event: warning malformed TTYPE 41
 server: ff fa 2c 05 ff fa 18 01 ff f0
 client: ff fa 18 00 55 4e 4b 4e 4f 57 4e ff f0
 event: warning malformed COM-PORT fa
+
+# IAC SB directly followed by IAC SE: 255 is the option and SE the first body
+# byte. Ended by IAC SE, the subnegotiation is discarded with no Warning; the
+# bytes inside it never reach Data.
+server: ff fa ff f0 61 62 ff f0 7a
+event: data "z"
+
+# The same, ended by IAC and a command byte: a missing SE, so a Warning naming
+# option 255, then the command.
+server: ff fa ff f0 61 62 ff f3 7a
+event: warning malformed ff f3
+event: command BRK
+event: data "z"
