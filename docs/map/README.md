@@ -54,7 +54,7 @@ Facts that hold at several sites that do not call each other:
 
 - Every note of a kind has the same headings; an empty one says **None.**, so `rg -lU '## Governing decisions\r?\n(\r?\n)?\*\*None\.\*\*' docs/map/` lists the areas no record governs.
 - Code is named by symbol (`file — Type::method`), never by line.
-- Every claim carries its evidence (a symbol, a commit, a Transcript) or its source and date — "the maintainer's call, made on 2026-09-29" is a stated reason, not a checked one.
+- Every claim carries its evidence (a symbol, a commit, a Transcript) or its source and date — "the maintainer's call, made on 2026-09-29" is a stated reason, not a checked one. Every such call is the maintainer's to reverse; notes do not repeat it.
 - A fact lives in one note; others link to it.
 - The layout is flat: territories, the aggregate and invariants side by side, invariants named for their fact.
 

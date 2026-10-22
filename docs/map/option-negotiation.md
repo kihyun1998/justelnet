@@ -31,23 +31,23 @@ An option counts as on only in RFC 1143's `YES` state. `Core::is_enabled` and Op
 
 An active start (`Start::Active`, the default) sends every requested option from `Core::with_policy`, before any input. A passive start sends nothing until the peer's negotiation first changes an option's state (an OptionChanged). Then, after answering the peer, `Core::start` asks for every requested option still off and not being negotiated (`NO`), so a request the caller already has in flight, with its queue, is left alone. Refusing an option the policy does not accept, or ignoring a DONT/WONT for one already off, changes no state and does not start it. It starts once: an option the peer refuses afterwards is not asked for again.
 
-The trigger and the order match PuTTY (`option_side_effects` in `telnet.c`: the answer is sent, then `activated` sends the requests). PuTTY asks only for ECHO and SGA both ways at that point; the Core asks for everything the policy requests, NAWS, TTYPE and NEW-ENVIRON included. Reading "sends nothing until the peer negotiates" as "then sends" rather than "only ever answers" is the maintainer's call, made on 2026-09-29, and theirs to reverse.
+The trigger and the order match PuTTY (`option_side_effects` in `telnet.c`: the answer is sent, then `activated` sends the requests). PuTTY asks only for ECHO and SGA both ways at that point; the Core asks for everything the policy requests, NAWS, TTYPE and NEW-ENVIRON included. Reading "sends nothing until the peer negotiates" as "then sends" rather than "only ever answers" is the maintainer's call, made on 2026-09-29.
 
 ### The policy decides only what the peer may ask for
 
-A caller's runtime request (`request_enable`) is sent whether or not the policy accepts the option, and the peer's agreement to it is taken without consulting the policy (RFC 1143's `WANTYES` rows have no "if we agree" test). This is the maintainer's call, made on 2026-09-29 when shown the alternative of ignoring runtime requests for options outside the policy (and turning them into an Error once #20 adds one). It matches the spec's BINARY row: "never requested by default; runtime request allowed". It is theirs to reverse.
+A caller's runtime request (`request_enable`) is sent whether or not the policy accepts the option, and the peer's agreement to it is taken without consulting the policy (RFC 1143's `WANTYES` rows have no "if we agree" test). This is the maintainer's call, made on 2026-09-29 when shown the alternative of ignoring runtime requests for options outside the policy (and turning them into an Error once #20 adds one). It matches the spec's BINARY row: "never requested by default; runtime request allowed".
 
 ### Noncompliant answers are absorbed with a Warning
 
-RFC 1143 marks two rows as errors: the peer answering our DONT/WONT with WILL/DO. The Core applies the state the RFC gives (off; or on, when an enable was queued), sends nothing further, and emits a `NoncompliantAnswer` Warning before any OptionChanged the row causes (`received` warns first), as libtelnet reports `EPROTOCOL` there. The maintainer chose to emit it on 2026-09-29, once the Warning Event existed (#17), over leaving the rows silent; it is theirs to reverse.
+RFC 1143 marks two rows as errors: the peer answering our DONT/WONT with WILL/DO. The Core applies the state the RFC gives (off; or on, when an enable was queued), sends nothing further, and emits a `NoncompliantAnswer` Warning before any OptionChanged the row causes (`received` warns first), as libtelnet reports `EPROTOCOL` there. The maintainer chose to emit it on 2026-09-29, once the Warning Event existed (#17), over leaving the rows silent.
 
 ### Redundant requests send nothing
 
-A runtime request that RFC 1143 marks as an error (already on, already asked for, already queued) is a no-op, not an `Err`: the option is already where the caller wants it, so it is not a misuse, and `Err` is kept for misuse (#10). The maintainer chose this on 2026-09-29, once the Core had an Error type, over returning `Result` with an AlreadyEnabled-style variant; it is theirs to reverse. RFC 854 rule b (never acknowledge a request for a state already in effect) and the receive tables together are what stop peers such as gensio, which acknowledge a WONT for an option already off, from starting a loop.
+A runtime request that RFC 1143 marks as an error (already on, already asked for, already queued) is a no-op, not an `Err`: the option is already where the caller wants it, so it is not a misuse, and `Err` is kept for misuse (#10). The maintainer chose this on 2026-09-29, once the Core had an Error type, over returning `Result` with an AlreadyEnabled-style variant. RFC 854 rule b (never acknowledge a request for a state already in effect) and the receive tables together are what stop peers such as gensio, which acknowledge a WONT for an option already off, from starting a loop.
 
 ### A refusal does not stick
 
-After `request_disable` completes, the option is back in `NO`, and a later WILL/DO from the peer is answered from the policy again, as RFC 1143 and libtelnet do. PuTTY instead keeps a refused option refused (its `REALLY_INACTIVE` state). The Core cannot change its policy after `with_policy`, so a caller has no way today to refuse an option the policy accepts for the rest of a session. This is the maintainer's call, made on 2026-09-29 when shown PuTTY's sticky state as the alternative; it is theirs to reverse, and to revisit if a caller needs a lasting refusal.
+After `request_disable` completes, the option is back in `NO`, and a later WILL/DO from the peer is answered from the policy again, as RFC 1143 and libtelnet do. PuTTY instead keeps a refused option refused (its `REALLY_INACTIVE` state). The Core cannot change its policy after `with_policy`, so a caller has no way today to refuse an option the policy accepts for the rest of a session. This is the maintainer's call, made on 2026-09-29 when shown PuTTY's sticky state as the alternative; to be revisited if a caller needs a lasting refusal.
 
 ### Names
 
@@ -55,7 +55,7 @@ After `request_disable` completes, the option is back in `NO`, and a later WILL/
 
 ### OptionChanged is not `#[non_exhaustive]`
 
-`Event` is non-exhaustive, but its `OptionChanged` variant is not, so adding a field to it would break callers' patterns. Marking it would stop code outside the crate, including the Transcript runner, from constructing the Event it compares against. The maintainer chose to leave it unmarked on 2026-09-29, judging that option, side and on/off are a closed set; it is theirs to reverse. The README's Versioning section names it as the deliberate case ([versioning](versioning.md)).
+`Event` is non-exhaustive, but its `OptionChanged` variant is not, so adding a field to it would break callers' patterns. Marking it would stop code outside the crate, including the Transcript runner, from constructing the Event it compares against. The maintainer chose to leave it unmarked on 2026-09-29, judging that option, side and on/off are a closed set. The README's Versioning section names it as the deliberate case ([versioning](versioning.md)).
 
 ### Input bounds
 

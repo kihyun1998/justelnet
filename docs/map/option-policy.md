@@ -16,7 +16,7 @@ From the source and the issues.
 
 ### The policy has three levels
 
-Each option on each side is refused, accepted, or requested (`Stance`). Accepted and requested options are agreed to when the peer asks; requested ones are also asked for at the start, in the order the builder first requested them (`OptionPolicyBuilder::set` keeps `requests`; an option refused or accepted in between moves to the end when requested again). `builder()` starts from the default policy, since adjusting it is the common case; `refuse_all()` gives a blank slate. This shape is the maintainer's call, made on 2026-09-29 when shown the alternative of keeping `support()` and passing the start list separately (two settings that could disagree). It is theirs to reverse.
+Each option on each side is refused, accepted, or requested (`Stance`). Accepted and requested options are agreed to when the peer asks; requested ones are also asked for at the start, in the order the builder first requested them (`OptionPolicyBuilder::set` keeps `requests`; an option refused or accepted in between moves to the end when requested again). `builder()` starts from the default policy, since adjusting it is the common case; `refuse_all()` gives a blank slate. This shape is the maintainer's call, made on 2026-09-29 when shown the alternative of keeping `support()` and passing the start list separately (two settings that could disagree).
 
 What the policy decides is only what the peer may ask for: a caller's runtime request bypasses it ([option negotiation](option-negotiation.md)). It cannot be changed after `with_policy`.
 
@@ -37,7 +37,7 @@ What follows from the Q method with no special code:
 
 - telnetd's 4.2BSD `DO ECHO` probe gets `WONT ECHO`, and the `DONT ECHO` telnetd sends afterwards asks for a state already in effect, so it gets no answer.
 - Every `DO TM` gets `WONT TM`, since TM stays in `NO`; this keeps BSD and inetutils telnetd out of kludge linemode. A runtime request that turns TM on on our side ends that (see the comment on #16). Seen on a real server: inetutils telnetd 2.8 sends `DO TM` and `DO LINEMODE` and gets `WONT` to both ([logging in to a real server](logging-in-to-a-real-server.md)).
-- OLD-ENVIRON is refused, so the two ENVIRONs are never both on, which hangs inetutils and BSD telnetd. A caller's policy accepting OLD-ENVIRON, or a runtime request for it, can still put both on: the Core does not guard it (PuTTY turns one off when the other activates), and it never answers an OLD-ENVIRON SEND (`Core::subnegotiated` answers only TTYPE and NEW-ENVIRON). The maintainer chose to leave it unguarded on 2026-09-29, as with TM and ECHO at both ends, since only a caller leaving the defaults reaches it; it is theirs to reverse.
+- OLD-ENVIRON is refused, so the two ENVIRONs are never both on, which hangs inetutils and BSD telnetd. A caller's policy accepting OLD-ENVIRON, or a runtime request for it, can still put both on: the Core does not guard it (PuTTY turns one off when the other activates), and it never answers an OLD-ENVIRON SEND (`Core::subnegotiated` answers only TTYPE and NEW-ENVIRON). The maintainer chose to leave it unguarded on 2026-09-29, as with TM and ECHO at both ends, since only a caller leaving the defaults reaches it.
 - BINARY is accepted both ways but never requested; inetutils telnetd asks for it, so against that server lines go out with a bare CR ([sending](sending.md)).
 
 ### A default Core reaches a telnetd login prompt alone

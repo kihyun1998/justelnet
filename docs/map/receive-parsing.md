@@ -18,7 +18,7 @@ From the source and the issues; no record states these rules.
 
 `IAC IAC` becomes a single 255 data byte, `IAC WILL/WONT/DO/DONT x` goes to option negotiation, and `IAC SB` to subnegotiation (`Core::command`). The nine commands NOP, DM, BRK, IP, AO, AYT, EC, EL and GA (241–249, `Command::from_code`) each become a Command Event in place among the data. Any other byte after IAC (SE outside a subnegotiation, or anything below 240, EOR, ABORT, SUSP and EOF included, whose options the Core refuses) is dropped with an `UnknownCommand` Warning. No Telnet control byte reaches Data.
 
-Warning on those bytes is the maintainer's call, made on 2026-09-29 over dropping them silently or warning on a stray SE only; it is theirs to reverse (maintainer, 2026-09-29).
+Warning on those bytes is the maintainer's call, made on 2026-09-29 over dropping them silently or warning on a stray SE only.
 
 ### DM is reported, and no data is discarded
 

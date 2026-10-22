@@ -14,7 +14,7 @@ rg -n "set_out_of_band_inline|set_nodelay" justelnet justelnet-expect
 
 Why urgent data has to stay inline: the Core sees only a byte stream and cannot repair what the urgent mark takes out of it ([receive parsing](receive-parsing.md), "DM is reported"). A netkit telnetd on RHEL 9 sends its Synch as TCP urgent data around the login banner; read on Windows through a socket without `SO_OOBINLINE` (probed 2026-09-29), the IAC was taken out of the stream and a lone `f2` arrived as data, in one of two runs. On BSD-semantics stacks the DM byte is the one taken, leaving a bare IAC to swallow the next byte (not observed).
 
-Why no delay: PuTTY's default (`tcp_nodelay`, `conf.h`), so each keystroke goes out at once. The maintainer chose it on 2026-09-29 on PuTTY's default alone, with nothing measured; it is theirs to reverse.
+Why no delay: PuTTY's default (`tcp_nodelay`, `conf.h`), so each keystroke goes out at once. The maintainer chose it on 2026-09-29 on PuTTY's default alone, with nothing measured.
 
 ## Territories it holds in
 

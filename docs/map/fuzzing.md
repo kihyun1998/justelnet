@@ -22,7 +22,7 @@ Only in CI, in its own workflow (`.github/workflows/fuzz.yml`): every night (`17
 
 The fuzz crate is its own workspace (`[workspace]` in `justelnet-core/fuzz/Cargo.toml`) so the stable workspace never builds libFuzzer, and has its own `Cargo.lock`.
 
-The fuzz target does not run natively on Windows as this repository's machine is set up (probed 2026-09-29): with AddressSanitizer the runtime DLL is not found, with Visual Studio 2019's ASan DLL on the path it fails to initialise, and without a sanitizer the link fails. It does build there (`cargo +nightly fuzz build receive`). #21 asked for the target to build and run locally; the maintainer chose on 2026-09-29 to have the on-demand CI run stand for "locally", over installing a toolchain in WSL, and it is theirs to reverse.
+The fuzz target does not run natively on Windows as this repository's machine is set up (probed 2026-09-29): with AddressSanitizer the runtime DLL is not found, with Visual Studio 2019's ASan DLL on the path it fails to initialise, and without a sanitizer the link fails. It does build there (`cargo +nightly fuzz build receive`). #21 asked for the target to build and run locally; the maintainer chose on 2026-09-29 to have the on-demand CI run stand for "locally", over installing a toolchain in WSL.
 
 ### A crash becomes a Transcript
 

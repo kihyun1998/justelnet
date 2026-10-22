@@ -24,7 +24,7 @@ While BINARY is on on our side (`is_enabled(BINARY, Local)`), `send_data` transl
 
 ### Commands
 
-`send_command` sends IAC and the command's own code, nothing else: Break is never sent as IP or the other way round (some devices treat them differently; Cisco has a knob to turn IP into a line BREAK). One `Command` type serves both directions, so GA and DM can be sent too. A DM sent this way carries no TCP urgent mark, which only the Driver could add, and does not. The single type is the maintainer's call, made on 2026-09-29 over a separate send-only type without GA and DM; it is theirs to reverse.
+`send_command` sends IAC and the command's own code, nothing else: Break is never sent as IP or the other way round (some devices treat them differently; Cisco has a knob to turn IP into a line BREAK). One `Command` type serves both directions, so GA and DM can be sent too. A DM sent this way carries no TCP urgent mark, which only the Driver could add, and does not. The single type is the maintainer's call, made on 2026-09-29 over a separate send-only type without GA and DM.
 
 ### Input bounds
 

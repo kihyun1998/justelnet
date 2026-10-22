@@ -14,11 +14,11 @@ From the source, the workflow, the Dockerfile and CONTRIBUTING.md.
 
 ### The server is GNU inetutils telnetd 2.8, built from source
 
-The container builds telnetd and inetd from the signed GNU release (`inetutils-2.8.tar.gz`, signature by Simon Josefsson checked with the GNU keyring on 2026-10-07, sha256 pinned in the Dockerfile's `ADD --checksum`) on a Debian image pinned by digest (trixie-slim, per the maintainer, 2026-10-07; the digest alone does not name it). Building from the release rather than installing Debian's `inetutils-telnetd` was the maintainer's call, made on 2026-10-07: it tests upstream without distribution patches, and the pinned tarball stays on ftp.gnu.org, where a pinned Debian package version leaves the archive at its next security update. The cost is a 49 s image build (measured locally, 2026-10-07). It is theirs to reverse.
+The container builds telnetd and inetd from the signed GNU release (`inetutils-2.8.tar.gz`, signature by Simon Josefsson checked with the GNU keyring on 2026-10-07, sha256 pinned in the Dockerfile's `ADD --checksum`) on a Debian image pinned by digest (trixie-slim, per the maintainer, 2026-10-07; the digest alone does not name it). Building from the release rather than installing Debian's `inetutils-telnetd` was the maintainer's call, made on 2026-10-07: it tests upstream without distribution patches, and the pinned tarball stays on ftp.gnu.org, where a pinned Debian package version leaves the archive at its next security update. The cost is a 49 s image build (measured locally, 2026-10-07).
 
 From 2.7 on, releases ship only as `.tar.gz`; there is no `.tar.xz`.
 
-The test lives in `justelnet-expect/tests/` as an ignored test, and the container under `ci/`, rather than in a separate workspace crate or as an example: the maintainer's call, made on 2026-10-07, and theirs to reverse.
+The test lives in `justelnet-expect/tests/` as an ignored test, and the container under `ci/`, rather than in a separate workspace crate or as an example: the maintainer's call, made on 2026-10-07.
 
 ### The test account and overrides
 
@@ -28,7 +28,7 @@ The account, its password and the shell prompt's regex (`SHELL_PROMPT`, `\ne2e\$
 
 ### The socket
 
-The test wraps its stream to record it (`Recorder`), so it connects with a plain `TcpStream` and `Client::new` rather than `Client::connect`, and sets on the socket what `connect` sets — see [socket setup matches connect](socket-setup-matches-connect.md). It reaches socket2 through a dev-dependency of `justelnet-expect`, already in the tree through `justelnet`. That is the maintainer's call, made on 2026-10-22 over a public function in `justelnet` that both `connect` and the test would call (#85); it is theirs to reverse.
+The test wraps its stream to record it (`Recorder`), so it connects with a plain `TcpStream` and `Client::new` rather than `Client::connect`, and sets on the socket what `connect` sets — see [socket setup matches connect](socket-setup-matches-connect.md). It reaches socket2 through a dev-dependency of `justelnet-expect`, already in the tree through `justelnet`. That is the maintainer's call, made on 2026-10-22 over a public function in `justelnet` that both `connect` and the test would call (#85).
 
 ### Traps in running it
 
@@ -55,7 +55,7 @@ Measured locally on 2026-10-07: the login takes 0.8 s, the wrong-password step 1
 
 Every run uploads `inetutils-telnetd-recording` (`JUSTELNET_E2E_RECORDING`): the bytes each side sent, in order, as `server:` and `client:` lines, written even when the test fails (`Recording`'s `Drop`). Its header names the server by the address the test was given, not as inetutils (#92). It is not replayable as is, since the runner also checks `event:` lines, which a byte recording does not have. Promoting it into the replay suite is the capture-to-Transcript procedure in [docs/transcripts.md](../transcripts.md#from-the-end-to-end-recording). Up to the login prompt it was the same in six runs (2026-10-07 to 2026-10-08) and is promoted as `telnetd-inetutils-2.8-recorded.txt`; what follows the prompt carries the test account and is not.
 
-#24 and #35 call this artifact a Transcript, but a Transcript (GLOSSARY.md) carries the `event:` lines too. Calling it a recording is the maintainer's call, made on 2026-10-07 over keeping the spec's word or adding a glossary entry; it is theirs to reverse.
+#24 and #35 call this artifact a Transcript, but a Transcript (GLOSSARY.md) carries the `event:` lines too. Calling it a recording is the maintainer's call, made on 2026-10-07 over keeping the spec's word or adding a glossary entry.
 
 ## Code
 
