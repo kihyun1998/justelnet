@@ -34,7 +34,7 @@ A Transcript without policy lines runs against `OptionPolicy::default()` (`commo
 
 ### Where the format is written down
 
-`docs/transcripts.md` is the one description of the format; the doc comment atop `tests/common/mod.rs` only points to it. Keeping the directive list in one place, rather than in both, is the maintainer's call (2026-10-08, chosen over a section in CONTRIBUTING.md that pointed at the list in `mod.rs`, and over a copy in each); it is theirs to reverse. A new directive in the parser has to be added to that page — see [every Event has a Transcript spelling](every-event-has-a-transcript-spelling.md) for the vocabulary the two must share.
+`docs/transcripts.md` is the one description of the format; the doc comment atop `tests/common/mod.rs` only points to it. Keeping the directive list in one place, rather than in both, is the maintainer's call (2026-10-08, chosen over a section in CONTRIBUTING.md that pointed at the list in `mod.rs`, and over a copy in each). A new directive in the parser has to be added to that page — see [every Event has a Transcript spelling](every-event-has-a-transcript-spelling.md) for the vocabulary the two must share.
 
 ### A failure prints as Transcript lines
 
