@@ -64,8 +64,6 @@ Once every box above is checked on the commit to release, on `main`:
    ```
 
    A tag whose version is already on crates.io passes without publishing.
-4. After the first release, take "not yet published to crates.io" out of the
-   README's status line.
 
 ### The first release, 0.1.0
 

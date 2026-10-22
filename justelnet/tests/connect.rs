@@ -9,7 +9,7 @@ use socket2::SockRef;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
-/// Generous, so that a slow CI machine never trips it.
+/// The connect timeout of every test here but the timeout test.
 const TIMEOUT: Duration = Duration::from_secs(30);
 
 #[tokio::test]
