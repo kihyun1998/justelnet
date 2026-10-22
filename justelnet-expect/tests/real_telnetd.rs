@@ -14,6 +14,7 @@ use justelnet::core::OptionPolicy;
 use justelnet::{Client, Event};
 use justelnet_expect::regex::bytes::Regex;
 use justelnet_expect::{Error, Expect, Match, Pattern};
+use socket2::SockRef;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::TcpStream;
 
@@ -27,6 +28,10 @@ async fn a_login_to_inetutils_telnetd() {
     let addr = std::env::var("JUSTELNET_E2E_ADDR").expect("JUSTELNET_E2E_ADDR is not set");
     let password = std::env::var("JUSTELNET_E2E_PASSWORD").unwrap_or_else(|_| PASSWORD.into());
     let stream = TcpStream::connect(&addr).await.expect("connect");
+    SockRef::from(&stream)
+        .set_out_of_band_inline(true)
+        .expect("keep urgent data inline");
+    stream.set_nodelay(true).expect("send without delay");
     let (stream, _recording) = Recorder::new(stream);
     let mut s = Expect::new(Client::new(stream, OptionPolicy::default()));
     let shell = Regex::new(r"\ne2e\$ $").unwrap();
