@@ -73,7 +73,7 @@ The `client:` bytes and the Events of a step must match exactly, in order. Adjac
 | a PuTTY log | the negotiation both ways, in order, as names | bytes: option codes PuTTY has no name for, data, subnegotiation contents |
 | the end-to-end recording (`JUSTELNET_E2E_RECORDING`, the `inetutils-telnetd-recording` artifact) | both sides' bytes, in order, as `server:` and `client:` lines | the `event:` lines |
 
-**A silent capture stops at the server's first burst.** A telnetd sends its first requests and then waits for the answers, so a client that answers nothing records only those requests, however long it listens. Everything after depends on what the client answered.
+**A silent capture stops at the server's first burst.** A telnetd sends its first requests and then waits for the answers, so a client that answers nothing records only those requests, however long it listens. Everything after depends on what the client answered. To go further, record with the end-to-end test, where the Core answers (see [Recording another server](#recording-another-server-such-as-a-network-device)).
 
 **Later server bytes are only as good as the answers they followed.** A capture from a client that answered differently from the Core (PuTTY offers options the default policy does not, and refuses others) holds what the server said to *that* client. Use it only up to the first answer where the two differ.
 
@@ -214,6 +214,21 @@ The recording is already in `server:` and `client:` lines: each line is everythi
 1. Cut it at the login prompt. What follows carries the test account's name and password, which the Transcript does not need.
 2. Under each `server:` line, add the `event:` lines the Core must emit, checked as in step 3. The prompt itself is an `event: data "…"`.
 3. Check that each `client:` line is the Core's answer to the `server:` line above it. Bytes the caller sent, such as the user name, are a `call: data` step of their own, not an answer.
+
+### Recording another server, such as a network device
+
+The end-to-end test records any server it is pointed at, with the Core answering on the default Option policy, so the recording goes past the first burst that a silent capture stops at:
+
+```sh
+JUSTELNET_E2E_ADDR=<host>:23 JUSTELNET_E2E_RECORDING=capture.txt \
+  cargo test -p justelnet-expect --test real_telnetd -- --ignored
+```
+
+- **A login prompt that does not end in `login: `**, such as Cisco IOS's `Username: `, fails the test after 10 s with `timed out waiting for the login prompt`. The recording is still written, and it holds both sides through the prompt, which is all a Transcript needs.
+- **A login prompt that ends in `login: `** lets the test go on: it sends `JUSTELNET_E2E_USER` and `JUSTELNET_E2E_PASSWORD` (by default the CI container's `e2e` account, a failed login on any other server), and those bytes are in the recording's `client:` lines. Cut the recording at the prompt before it leaves your machine.
+- **A banner can name the device**, its site or its owner, and the recording's first comment line names the address the test was given. Replace both before committing, as for any capture.
+
+Note the device's model and OS version in the Transcript's header comment.
 
 ## From a fuzz finding
 
