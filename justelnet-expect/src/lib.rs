@@ -291,7 +291,7 @@ impl From<justelnet::Error> for Error {
 }
 
 /// `line` followed by Enter, a CR, which the client turns into the policy's
-/// end of line.
+/// end of line unless BINARY is on on our side.
 fn with_enter(line: &[u8]) -> Vec<u8> {
     let mut data = line.to_vec();
     data.push(b'\r');
@@ -426,7 +426,8 @@ where
     }
 
     /// Sends `line` followed by Enter, which the client turns into the
-    /// policy's end of line.
+    /// policy's end of line unless BINARY is on on our side, when a bare CR
+    /// goes out.
     pub async fn send_line(&mut self, line: impl AsRef<[u8]>) -> Result<(), Error> {
         let data = with_enter(line.as_ref());
         self.client.send_data(&data).await?;

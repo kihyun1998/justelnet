@@ -715,6 +715,23 @@ async fn option_state_is_read_through_the_session() {
     assert!(s.client().is_enabled(TelnetOption::ECHO, Side::Remote));
 }
 
+#[tokio::test(start_paused = true)]
+async fn a_line_ends_in_a_bare_cr_while_binary_is_on_on_our_side() {
+    let (stream, mut device) = duplex(1024);
+    let policy = OptionPolicy::builder()
+        .refuse_all()
+        .accept(TelnetOption::BINARY, Side::Local)
+        .build();
+    let mut s = Expect::new(Client::new(stream, policy));
+    device.write_all(b"\xff\xfd\x00login: ").await.unwrap();
+    s.expect("login: ", SECS_5).await.unwrap();
+    assert!(s.client().is_enabled(TelnetOption::BINARY, Side::Local));
+
+    s.send_line("admin").await.unwrap();
+
+    assert_eq!(received(&mut device).await, b"\xff\xfb\x00admin\r");
+}
+
 /// What a session's log was given, owned, in order.
 #[derive(Debug, PartialEq)]
 enum Entry {
