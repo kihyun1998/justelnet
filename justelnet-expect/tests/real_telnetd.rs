@@ -1,9 +1,11 @@
-//! A login to a real telnetd, the one in `ci/inetutils-telnetd`.
+//! A login to a real telnetd, by default the one in `ci/inetutils-telnetd`.
 //!
 //! Ignored by default; CI runs it against the container with `--ignored`.
-//! `JUSTELNET_E2E_ADDR` is the server's address. `JUSTELNET_E2E_PASSWORD`
-//! overrides the test account's password. `JUSTELNET_E2E_RECORDING` is where
-//! the bytes each side sent are written, as `server:` and `client:` lines.
+//! `JUSTELNET_E2E_ADDR` is the server's address. `JUSTELNET_E2E_USER` and
+//! `JUSTELNET_E2E_PASSWORD` override the test account and its password, and
+//! `JUSTELNET_E2E_SHELL_PROMPT` the regex that matches the shell's prompt.
+//! `JUSTELNET_E2E_RECORDING` is where the bytes each side sent are written,
+//! as `server:` and `client:` lines.
 
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
@@ -20,24 +22,28 @@ use tokio::net::TcpStream;
 
 const USER: &str = "e2e";
 const PASSWORD: &str = "justelnet-e2e";
+const SHELL_PROMPT: &str = r"\ne2e\$ $";
 const WAIT: Duration = Duration::from_secs(10);
 
 #[tokio::test]
 #[ignore = "needs the telnetd container; set JUSTELNET_E2E_ADDR"]
 async fn a_login_to_inetutils_telnetd() {
     let addr = std::env::var("JUSTELNET_E2E_ADDR").expect("JUSTELNET_E2E_ADDR is not set");
+    let user = std::env::var("JUSTELNET_E2E_USER").unwrap_or_else(|_| USER.into());
     let password = std::env::var("JUSTELNET_E2E_PASSWORD").unwrap_or_else(|_| PASSWORD.into());
+    let shell = std::env::var("JUSTELNET_E2E_SHELL_PROMPT").unwrap_or_else(|_| SHELL_PROMPT.into());
+    let shell = Regex::new(&shell)
+        .unwrap_or_else(|e| panic!("JUSTELNET_E2E_SHELL_PROMPT is not a valid regex: {e}"));
     let stream = TcpStream::connect(&addr).await.expect("connect");
     SockRef::from(&stream)
         .set_out_of_band_inline(true)
         .expect("keep urgent data inline");
     stream.set_nodelay(true).expect("send without delay");
-    let (stream, _recording) = Recorder::new(stream);
+    let (stream, _recording) = Recorder::new(stream, &addr);
     let mut s = Expect::new(Client::new(stream, OptionPolicy::default()));
-    let shell = Regex::new(r"\ne2e\$ $").unwrap();
 
     wait(&mut s, Regex::new(r"login: $").unwrap(), "the login prompt").await;
-    s.send_line(USER).await.unwrap();
+    s.send_line(&user).await.unwrap();
     wait(
         &mut s,
         Regex::new(r"Password: $").unwrap(),
@@ -98,10 +104,14 @@ struct Recorder<S> {
 }
 
 impl<S> Recorder<S> {
-    /// The stream, and a guard that writes the log out when dropped.
-    fn new(inner: S) -> (Self, Recording) {
+    /// The stream to `server`, and a guard that writes the log out when
+    /// dropped.
+    fn new(inner: S, server: &str) -> (Self, Recording) {
         let log = Log::default();
-        let recording = Recording(log.clone());
+        let recording = Recording {
+            log: log.clone(),
+            server: server.to_owned(),
+        };
         (Self { inner, log }, recording)
     }
 
@@ -155,19 +165,24 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for Recorder<S> {
 }
 
 /// Writes the recorded bytes to `JUSTELNET_E2E_RECORDING` when dropped.
-struct Recording(Log);
+struct Recording {
+    log: Log,
+    /// The server's address, as the test was given it.
+    server: String,
+}
 
 impl Drop for Recording {
     fn drop(&mut self) {
         let Ok(path) = std::env::var("JUSTELNET_E2E_RECORDING") else {
             return;
         };
-        let mut text = String::from(
-            "# Recorded from GNU inetutils telnetd 2.8 (ci/inetutils-telnetd) by the\n\
-             # end-to-end test, default Option policy. Bytes only: the `event:` lines\n\
-             # a replayable Transcript needs are not recorded.\n",
+        let mut text = format!(
+            "# Recorded from the telnetd at {} by the end-to-end test, default\n\
+             # Option policy. Bytes only: the `event:` lines a replayable Transcript\n\
+             # needs are not recorded.\n",
+            self.server
         );
-        for (side, bytes) in self.0.lock().unwrap().iter() {
+        for (side, bytes) in self.log.lock().unwrap().iter() {
             let hex: Vec<String> = bytes.iter().map(|b| format!("{b:02x}")).collect();
             text.push_str(&format!("{side}: {}\n", hex.join(" ")));
         }
