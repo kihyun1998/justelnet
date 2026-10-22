@@ -44,7 +44,7 @@ The proof is a randomized test (`cancelled_calls_lose_no_byte_either_way`): the 
 
 Each thing the proof leans on was broken once and the test went red (2026-09-29): output taken into a local before writing, an await between read and receive, and a write count reset on every call all fail from seed 1. Clearing the flush flag before the flush has finished fails only from seed 49: the flush window is narrow, and a seed count much below 300 would miss it.
 
-The test holds its own copy of the netkit Transcript's five `server:` lines (`NETKIT_SERVER`) rather than including `justelnet-core/tests/transcripts/telnetd-netkit-rhel9.txt`, since the published `justelnet` crate ships its tests but not that file (#55, see [releasing](releasing.md)). The copy matched the Transcript byte for byte when made and still does (checked 2026-10-22), and the flush-flag mutation still failed from seed 49 (2026-10-07). Copying the lines, over copying the whole file or leaving the tests out of the package, is the maintainer's call, made on 2026-10-07; it is theirs to reverse. A change to that Transcript does not reach this test.
+The test holds its own copy of the netkit Transcript's five `server:` lines (`NETKIT_SERVER`) rather than including `justelnet-core/tests/transcripts/telnetd-netkit-rhel9.txt`, since the published `justelnet` crate ships its tests but not that file (#55, see [releasing](releasing.md)). The copy matched the Transcript byte for byte when made and still does (checked 2026-10-22), and the flush-flag mutation still failed from seed 49 (2026-10-07). Copying the lines, over copying the whole file or leaving the tests out of the package, is the maintainer's call, made on 2026-10-07; it is theirs to reverse. A change to that Transcript does not reach this test; the Transcript's header names the copy.
 
 ### Sending
 
@@ -60,7 +60,7 @@ Against the netkit telnetd on RHEL 9 (probed 2026-09-29): login through `send_da
 
 The socket options `connect` sets — urgent data inline and no delay — and why are in [socket setup matches connect](socket-setup-matches-connect.md). socket2 is the dependency that sets the first: already in the tree through tokio's `net` feature (0.6, `features = ["all"]`), so depending on it directly adds no crate; the dependency is the maintainer's call, made on 2026-09-29 over per-platform `setsockopt` code and leaving it unset, and theirs to reverse.
 
-The timeout test (`an_unanswered_connect_times_out`) connects to TEST-NET-1 (`192.0.2.1`, RFC 5737) under paused time: the clock jumps to the timer once the runtime is idle, so it asserts the time waited, not only the variant, or a timeout ignoring its argument would pass. The other connect tests' `TIMEOUT` is 30 s, generous so that a slow CI machine never trips it (comment on `TIMEOUT` in `connect.rs`).
+The timeout test (`an_unanswered_connect_times_out`) connects to TEST-NET-1 (`192.0.2.1`, RFC 5737) under paused time: the clock jumps to the timer once the runtime is idle, so it asserts the time waited, not only the variant, or a timeout ignoring its argument would pass. The other connect tests' `TIMEOUT` is 30 s, generous so that a slow CI machine never trips it (moved here from the comment on `TIMEOUT` in `connect.rs`, 2026-10-22).
 
 ### How a connection ends
 

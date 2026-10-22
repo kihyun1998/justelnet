@@ -63,5 +63,4 @@ The rustdoc of all three crates sets `html_logo_url` and `html_favicon_url` to r
 
 ## Known holes / open
 
-- RELEASING.md "Publishing" step 4 still says to take "not yet published to crates.io" out of the README status line, which was done by commit `61a56a0` (#74); the step is now a no-op for every release.
 - No reviewer protection on the `release` environment unless the maintainer adds it (above).

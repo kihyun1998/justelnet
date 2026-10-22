@@ -3,7 +3,22 @@
 mod common;
 
 use common::Outcome;
-use justelnet_core::{Command, Event, Side, TelnetOption, Warning};
+use justelnet_core::{Command, Core, Event, Side, TelnetOption, Warning};
+
+/// Every Command the Core reports for some `IAC <byte>`.
+fn commands_the_core_reports() -> Vec<Command> {
+    let mut commands = Vec::new();
+    for byte in 0..=u8::MAX {
+        let mut core = Core::new();
+        core.receive(&[0xff, byte]);
+        while let Some(event) = core.poll_event() {
+            if let Event::Command(command) = event {
+                commands.push(command);
+            }
+        }
+    }
+    commands
+}
 
 fn round_trip(outcome: &Outcome, at: &str) {
     let text = format!("{outcome:?}");
@@ -48,17 +63,9 @@ fn every_byte_option_and_command_round_trips() {
         events.push(Event::Warning(Warning::UnknownCommand { byte: code }));
         events.push(Event::Data(b"\"\\\r\n".to_vec()));
     }
-    for command in [
-        Command::NoOperation,
-        Command::DataMark,
-        Command::Break,
-        Command::InterruptProcess,
-        Command::AbortOutput,
-        Command::AreYouThere,
-        Command::EraseCharacter,
-        Command::EraseLine,
-        Command::GoAhead,
-    ] {
+    let commands = commands_the_core_reports();
+    assert!(!commands.is_empty(), "the Core reported no Command");
+    for command in commands {
         events.push(Event::Command(command));
     }
     let outcome = Outcome {

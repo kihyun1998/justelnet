@@ -1,6 +1,7 @@
 # netkit telnetd on RHEL 9 (Kernel 5.14.0-570.12.1.el9_6), captured
 # 2026-09-29 against the default policy, up to the login prompt. The server's
 # bytes are as received; the Core's answers are what it must send.
+# justelnet/tests/cancel_safety.rs holds a copy of the server: lines.
 client: ff fb 1f ff fb 18 ff fb 27 ff fd 01 ff fb 03 ff fd 03
 
 # Phase 1: DO TTYPE, TSPEED, XDISPLOC, NEW-ENVIRON (netkit sends no OLD-ENVIRON).
